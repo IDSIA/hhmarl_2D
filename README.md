@@ -17,7 +17,7 @@ Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Man
 
 ## Training
 
-Run `train_hetero.py` for heterogeneous agents training and `train_hier.py` to train the super-policy (commander). The low-level policies must be trained in order to start training of the commander policy. 
+Run `train_hetero.py` for heterogeneous agents training and `train_hier.py` to train the super-policy (commander). The low-level policies must be pre-trained and stored in order to start training of the commander policy. 
 
 `config.py` contain the corresponding arguments to set:
 
