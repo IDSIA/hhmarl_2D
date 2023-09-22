@@ -20,7 +20,7 @@ class Rocket(Unit):
     speed_profile = interp1d(speed_profile_time, speed_profile_knots, kind='quadratic', assume_sorted=True,
                              bounds_error=False, fill_value=(500, 600))
 
-    def __init__(self, position: Position, heading: float, firing_time: datetime, target: Unit, source: Unit, friendly_check: bool = False):
+    def __init__(self, position: Position, heading: float, firing_time: datetime, target: Unit, source: Unit, friendly_check: bool = True):
         self.speed = Rocket.speed_profile(0)
         super().__init__("Rocket", position, heading, self.speed)
         self.new_heading = heading

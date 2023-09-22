@@ -11,28 +11,28 @@ import os
 import time
 import shutil
 import tqdm
-import json
-import random
 import numpy as np
 from gymnasium import spaces
 from tensorboard import program
 from pathlib import Path
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.models import ModelCatalog
-from ray.rllib.policy.policy import PolicySpec, Policy
+from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
-from models.ac_models_hetero import CCRocketDummyAC1, CCRocketDummyAC2,CCRocketAC1, CCRocketAC2, CCAtt1, CCAtt2, CCFc1, CCFc2, CCEsc1, CCEsc2, CCDummyEsc1, CCDummyEsc2
+from models.ac_models_hetero import Fight1, Fight2, Esc1, Esc2, DummyFight1, DummyFight2, DummyEsc1, DummyEsc2
 from config_hetero import Config
 from envs.env_hetero import DogfightScenario
 import torch
-import logging
 
 
 ACTION_DIM_AC1 = 4
 ACTION_DIM_AC2 = 3
 
 def update_logs(args, log_dir, level, epoch):
+    """
+    Copy stored checkpoints from Ray log to experiment log directory.
+    """
     dirs = sorted(Path(log_dir).glob('*/'), key=os.path.getmtime)
     check = ''
     event = ''
@@ -42,10 +42,7 @@ def update_logs(args, log_dir, level, epoch):
         if "events" in item.name:
             event = str(item)
     
-    if args.exp_folder:
-        result_dir = os.path.join("results", 'HETERO', args.exp_folder, args.log_name, 'checkpoint')
-    else:
-        result_dir = os.path.join("results", 'HETERO', args.log_name, 'checkpoint')
+    result_dir = os.path.join(args.log_path, 'checkpoint')
     
     try:
         shutil.rmtree(result_dir)
@@ -54,12 +51,11 @@ def update_logs(args, log_dir, level, epoch):
 
     shutil.copytree(check,result_dir,symlinks=False,dirs_exist_ok=False)
     shutil.copy(event,result_dir)
-    if args.log_history and epoch % 200 == 0:
-        history_dir = os.path.join("results", args.log_name, 'check_history',f'check_{epoch}_{level}')
-        shutil.copytree(check,history_dir,symlinks=False,dirs_exist_ok=False)
-        shutil.copy(event,history_dir)
 
 def evaluate(args, algo, env, epoch, level):
+    """
+    Evaluations are stored as pictures of combat scenarios, with rewards in filename.
+    """
     def cc_obs(obs, id):
         if id == 1:
             return {
@@ -90,14 +86,10 @@ def evaluate(args, algo, env, epoch, level):
     step = 0
     while not done:
         actions = {}
-        for ag_id, ag_s in state.items():
+        for ag_id in state.keys():
             if ag_id <= 2:
-                #actions[ag_id] = algo.compute_single_action(observation=cc_obs(state, ag_id), policy_id=f"ac{ag_id}_policy")
-                if args.sequential:
-                    a = algo.compute_single_action(observation=cc_obs(state, ag_id), state=torch.zeros(1), policy_id=f"ac{ag_id}_policy")
-                    actions[ag_id] = a[0]
-                else:
-                    actions[ag_id] = algo.compute_single_action(observation=cc_obs(state, ag_id), policy_id=f"ac{ag_id}_policy")
+                a = algo.compute_single_action(observation=cc_obs(state, ag_id), state=torch.zeros(1), policy_id=f"ac{ag_id}_policy")
+                actions[ag_id] = a[0]
 
         state, rew, hist, trunc, _ = env.step(actions)
         done = hist["__all__"] or trunc["__all__"]
@@ -129,12 +121,19 @@ def assign_policy(agent_id, episode, worker, **kwargs):
     elif agent_id == 4:
         return "dummy_policy_ac2"
 
-def cc_policy(args):
+def get_policy(args):
+    """
+    Agents get assigned the neural networks CCAtt1, CCAtt2, CCEsc1 and CCEsc2. 
+    Opponents need to get assigned also a network to have them registered as 'agents' in Ray. This is needed to get their IDs in callbacks.
+    We assign them a dummy network, which won't be used and updated.
+    """
 
     class CustomCallback(DefaultCallbacks):
         """
-        Here, the opponents actions will be added to the episode states 
-        And the current level will be tracked. 
+        This callback is used to have fully observable critic. Other agent's and opponent's
+        observations and actions will be added to this episode batch.
+
+        ATTENTION: This callback is set up for 2vs2 training.  
         """
         def on_postprocess_trajectory(
             self,
@@ -158,7 +157,6 @@ def cc_policy(args):
             acts = [own_act, fri_act, opp_acts]
 
             for i, act in enumerate(acts):
-                #if i <= 1:
                 if agent_id == 1 and i == 0 or agent_id==2 and i==1:
                     if agent_id == 1:
                         to_update[:,i*4] = act[:,0]/12.0
@@ -199,10 +197,7 @@ def cc_policy(args):
                         act4[j,0] = a4[0]/12.0
                         act4[j,1] = a4[1]/8.0
                         act4[j,2] = a4[2]
-                        #act4[j,3] = a4[3]
 
-                    # to_update[:, 8:12] = act3
-                    # to_update[:, 12:16] = act4
                     to_update[:, 7:11] = act3
                     to_update[:, 11:14] = act4
 
@@ -261,15 +256,15 @@ def cc_policy(args):
     )
 
     if args.agent_mode == "escape":
-        ModelCatalog.register_custom_model("ac1_model",CCEsc1)
-        ModelCatalog.register_custom_model("ac2_model",CCEsc2)
-        ModelCatalog.register_custom_model("dummy_model_ac1",CCDummyEsc1)
-        ModelCatalog.register_custom_model("dummy_model_ac2",CCDummyEsc2)
+        ModelCatalog.register_custom_model("ac1_model",Esc1)
+        ModelCatalog.register_custom_model("ac2_model",Esc2)
+        ModelCatalog.register_custom_model("dummy_model_ac1",DummyEsc1)
+        ModelCatalog.register_custom_model("dummy_model_ac2",DummyEsc2)
     else:
-        ModelCatalog.register_custom_model("ac1_model_l5",CCAtt1) # 'ac1_model' until level4, ac1_model_l5 at level5 because of esc policy registration
-        ModelCatalog.register_custom_model("ac2_model_l5",CCAtt2)
-        ModelCatalog.register_custom_model("dummy_model_ac1",CCRocketDummyAC1)
-        ModelCatalog.register_custom_model("dummy_model_ac2",CCRocketDummyAC2)
+        ModelCatalog.register_custom_model("ac1_model_l5" if args.level == 5 else 'ac1_model', Fight1) # 'ac1_model' until level4, ac1_model_l5 at level5 because of esc policy registration
+        ModelCatalog.register_custom_model("ac2_model_l5" if args.level == 5 else 'ac2_model',Fight2)
+        ModelCatalog.register_custom_model("dummy_model_ac1",DummyFight1)
+        ModelCatalog.register_custom_model("dummy_model_ac2",DummyFight2)
 
     action_space_ac1 = spaces.MultiDiscrete([13,9,2,2])
     action_space_ac2 = spaces.MultiDiscrete([13,9,2])
@@ -289,7 +284,7 @@ def cc_policy(args):
                     action_space_ac1,
                     config={
                         "model": {
-                            "custom_model": "ac1_model_l5"
+                            "custom_model": "ac1_model_l5" if args.level == 5 else 'ac1_model'
                         }
                     }
                 ),
@@ -299,7 +294,7 @@ def cc_policy(args):
                     action_space_ac2,
                     config={
                         "model": {
-                            "custom_model": "ac2_model_l5"
+                            "custom_model": "ac2_model_l5" if args.level == 5 else 'ac2_model'
                         }
                     }
                 ),
@@ -333,11 +328,9 @@ def cc_policy(args):
     return algo
 
 if __name__ == '__main__':
-    rllib_logger = logging.getLogger("ray.rllib")
-    rllib_logger.setLevel(logging.ERROR)
     args = Config().get_arguments
     test_env = None
-    algo = cc_policy(args)
+    algo = get_policy(args)
 
     if args.restore:
         if args.restore_path:
@@ -357,7 +350,7 @@ if __name__ == '__main__':
 
     time.sleep(2)
     time_acc = 0
-    iters = tqdm.trange(0, 10*args.epochs+1,  leave=True)
+    iters = tqdm.trange(0, args.epochs+1,  leave=True)
     os.system('clear') if os.name == 'posix' else os.system('cls')
 
     for i in iters:
@@ -365,8 +358,7 @@ if __name__ == '__main__':
         result = algo.train()
         time_acc += time.time()-t
         iters.set_description(f"{i}) Reward = {result['episode_reward_mean']:.2f} | Level = {args.level} | Time = {round(time_acc/(i+1), 3)} | TB: {url} | Progress")
-        #iters.set_description(f"{i}) Reward = {result['episode_reward_mean']:.2f} | Mode = {args.agent_mode}, AC{args.ac_type}, Level = {args.level} | Time = {round(time_acc/(i+1), 3)} | TB: {url} | Progress")
-
-        if i % 10 == 0:
+        
+        if i % 50 == 0:
             make_checkpoint(args, algo, log_dir, i, args.level, test_env)
 

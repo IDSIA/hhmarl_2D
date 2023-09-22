@@ -12,7 +12,7 @@ SS_FULL_AC1 = 30
 SS_FULL_AC2 = 28 # 28 fight, 29 escp
 SS_AGENT_AC1 = 12
 SS_AGENT_AC2 = 10
-SS_FRI = 8 # 8 ss2, 17 ss3
+SS_FRI = 8
 
 
 ACTION_DIM_AC1 = 4
@@ -22,11 +22,10 @@ SHARED_LAYER = SlimFC(
     500,
     500,
     activation_fn= nn.Tanh,
-    #initializer=torch.nn.init.xavier_uniform_,
     initializer=torch.nn.init.orthogonal_
 )
 
-class CCRocketDummyAC1(TorchModelV2, nn.Module):
+class DummyFight1(TorchModelV2, nn.Module):
     def __init__(
         self, observation_space, action_space, num_outputs, model_config, name
     ):
@@ -59,7 +58,7 @@ class CCRocketDummyAC1(TorchModelV2, nn.Module):
         assert self._inp1 is not None, "must call forward first!"
         return torch.reshape(self.out_v(self._inp1), [-1])
 
-class CCRocketDummyAC2(TorchModelV2, nn.Module):
+class DummyFight2(TorchModelV2, nn.Module):
     def __init__(
         self, observation_space, action_space, num_outputs, model_config, name
     ):
@@ -92,7 +91,7 @@ class CCRocketDummyAC2(TorchModelV2, nn.Module):
         assert self._inp1 is not None, "must call forward first!"
         return torch.reshape(self.out_v(self._inp1), [-1])
 
-class CCDummyEsc1(TorchModelV2, nn.Module):
+class DummyEsc1(TorchModelV2, nn.Module):
     def __init__(
         self, observation_space, action_space, num_outputs, model_config, name
     ):
@@ -125,7 +124,7 @@ class CCDummyEsc1(TorchModelV2, nn.Module):
         assert self._inp1 is not None, "must call forward first!"
         return torch.reshape(self.out_v(self._inp1), [-1])
 
-class CCDummyEsc2(TorchModelV2, nn.Module):
+class DummyEsc2(TorchModelV2, nn.Module):
     def __init__(
         self, observation_space, action_space, num_outputs, model_config, name
     ):
@@ -158,117 +157,7 @@ class CCDummyEsc2(TorchModelV2, nn.Module):
         assert self._inp1 is not None, "must call forward first!"
         return torch.reshape(self.out_v(self._inp1), [-1])
 
-
-class CCRocketAC1(TorchModelV2, nn.Module):
-    def __init__(
-        self, observation_space, action_space, num_outputs, model_config, name
-    ):
-        TorchModelV2.__init__(
-            self, observation_space, action_space, num_outputs, model_config, name
-        )
-        nn.Module.__init__(self)
-
-        self.shared_layer = SHARED_LAYER
-
-        self._inp1 = None
-        self._inp2 = None
-        self._inp3 = None
-
-        self._v1 = None
-        self._v2 = None
-        self._v3 = None
-        self._v4 = None
-
-        self.inp1 = SlimFC(SS_AGENT_AC1,220,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2 = SlimFC(SS_FULL_AC1-SS_AGENT_AC1-SS_FRI,180,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp3 = SlimFC(SS_FRI,100,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.act_out = SlimFC(500,self.num_outputs,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-        self.inp1_val = SlimFC(SS_FULL_AC1+ACTION_DIM_AC1,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2_val = SlimFC(SS_FULL_AC2+ACTION_DIM_AC2,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp3_val = SlimFC(SS_FULL_AC1+ACTION_DIM_AC1,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp4_val = SlimFC(SS_FULL_AC2+ACTION_DIM_AC2,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.val_out = SlimFC(500,1,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-    @override(ModelV2)
-    def forward(self, input_dict, state, seq_lens):
-        self._inp1 = input_dict["obs"]["obs_1_own"][:,:SS_AGENT_AC1]
-        self._inp2 = input_dict["obs"]["obs_1_own"][:,SS_AGENT_AC1:SS_FULL_AC1-SS_FRI]
-        self._inp3 = input_dict["obs"]["obs_1_own"][:,SS_FULL_AC1-SS_FRI:]
-        self._v1 = torch.cat((input_dict["obs"]["obs_1_own"], input_dict["obs"]["act_1_own"]),dim=1)
-        self._v2 = torch.cat((input_dict["obs"]["obs_2"], input_dict["obs"]["act_2"]),dim=1)
-        self._v3 = torch.cat((input_dict["obs"]["obs_3"], input_dict["obs"]["act_3"]),dim=1)
-        self._v4 = torch.cat((input_dict["obs"]["obs_4"], input_dict["obs"]["act_4"]),dim=1)
-
-        x = torch.cat((self.inp1(self._inp1), self.inp2(self._inp2), self.inp3(self._inp3)),dim=1) 
-        x = self.shared_layer(x)
-        x = self.act_out(x)
-        return x, []
-
-    @override(ModelV2)
-    def value_function(self):
-        assert self._v1 is not None and self._v2 is not None and self._v3 is not None and self._v4 is not None, "must call forward first!"
-        x = torch.cat((self.inp1_val(self._v1),self.inp2_val(self._v2), self.inp3_val(self._v3), self.inp4_val(self._v4)),dim=1)
-        x = self.shared_layer(x)
-        x = self.val_out(x)
-        return torch.reshape(x, [-1])
-    
-class CCRocketAC2(TorchModelV2, nn.Module):
-    def __init__(
-        self, observation_space, action_space, num_outputs, model_config, name
-    ):
-        TorchModelV2.__init__(
-            self, observation_space, action_space, num_outputs, model_config, name
-        )
-        nn.Module.__init__(self)
-
-        self.shared_layer = SHARED_LAYER
-
-        self._inp1 = None
-        self._inp2 = None
-        self._inp3 = None
-
-        self._v1 = None
-        self._v2 = None
-        self._v3 = None
-        self._v4 = None
-
-        self.inp1 = SlimFC(SS_AGENT_AC2,220,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2 = SlimFC(SS_FULL_AC2-SS_AGENT_AC2-SS_FRI,180,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp3 = SlimFC(SS_FRI,100,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.act_out = SlimFC(500,self.num_outputs,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-        self.inp1_val = SlimFC(SS_FULL_AC2+ACTION_DIM_AC2,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2_val = SlimFC(SS_FULL_AC1+ACTION_DIM_AC1,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp3_val = SlimFC(SS_FULL_AC1+ACTION_DIM_AC1,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp4_val = SlimFC(SS_FULL_AC2+ACTION_DIM_AC2,125,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.val_out = SlimFC(500,1,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-    @override(ModelV2)
-    def forward(self, input_dict, state, seq_lens):
-        self._inp1 = input_dict["obs"]["obs_1_own"][:,:SS_AGENT_AC2]
-        self._inp2 = input_dict["obs"]["obs_1_own"][:,SS_AGENT_AC2:SS_FULL_AC2-SS_FRI]
-        self._inp3 = input_dict["obs"]["obs_1_own"][:,SS_FULL_AC2-SS_FRI:]
-        self._v1 = torch.cat((input_dict["obs"]["obs_1_own"], input_dict["obs"]["act_1_own"]),dim=1)
-        self._v2 = torch.cat((input_dict["obs"]["obs_2"], input_dict["obs"]["act_2"]),dim=1)
-        self._v3 = torch.cat((input_dict["obs"]["obs_3"], input_dict["obs"]["act_3"]),dim=1)
-        self._v4 = torch.cat((input_dict["obs"]["obs_4"], input_dict["obs"]["act_4"]),dim=1)
-
-        x = torch.cat((self.inp1(self._inp1), self.inp2(self._inp2), self.inp3(self._inp3)),dim=1) 
-        x = self.shared_layer(x)
-        x = self.act_out(x)
-        return x, []
-
-    @override(ModelV2)
-    def value_function(self):
-        assert self._v1 is not None and self._v2 is not None and self._v3 is not None and self._v4 is not None, "must call forward first!"
-        x = torch.cat((self.inp1_val(self._v1),self.inp2_val(self._v2), self.inp3_val(self._v3), self.inp4_val(self._v4)),dim=1)
-        x = self.shared_layer(x)
-        x = self.val_out(x)
-        return torch.reshape(x, [-1])
-    
-
-class CCAtt1(RecurrentNetwork, nn.Module):
+class Fight1(RecurrentNetwork, nn.Module):
 
     def __init__(self, observation_space, action_space, num_outputs, model_config, name):
         nn.Module.__init__(self)
@@ -399,7 +288,7 @@ class CCAtt1(RecurrentNetwork, nn.Module):
         assert self._val is not None, "must call forward first!"
         return torch.reshape(self._val, [-1])
     
-class CCAtt2(RecurrentNetwork, nn.Module):
+class Fight2(RecurrentNetwork, nn.Module):
 
     def __init__(self, observation_space, action_space, num_outputs, model_config, name):
         nn.Module.__init__(self)
@@ -530,88 +419,8 @@ class CCAtt2(RecurrentNetwork, nn.Module):
         #assert self._v1 is not None and self._v2 is not None and self._v3 is not None and self._v4 is not None, "must call forward first!"
         assert self._val is not None, "must call forward first!"
         return torch.reshape(self._val, [-1])
-    
 
-class CCFc1(TorchModelV2, nn.Module):
-    def __init__(
-        self, observation_space, action_space, num_outputs, model_config, name
-    ):
-        TorchModelV2.__init__(
-            self, observation_space, action_space, num_outputs, model_config, name
-        )
-        nn.Module.__init__(self)
-
-        self._inp1 = None
-        self._v1 = None
-
-        self.inp1 = SlimFC(SS_FULL_AC1,500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2 = SlimFC(500,500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.act_out = SlimFC(500,self.num_outputs,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-        self.inp1_val = SlimFC(2*(SS_FULL_AC1+ACTION_DIM_AC1)+2*(SS_FULL_AC2+ACTION_DIM_AC2),500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2_val = SlimFC(500,500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.val_out = SlimFC(500,1,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-    @override(ModelV2)
-    def forward(self, input_dict, state, seq_lens):
-        self._inp1 = input_dict["obs"]["obs_1_own"]
-        self._v1 = torch.cat((input_dict["obs"]["obs_1_own"], input_dict["obs"]["act_1_own"], input_dict["obs"]["obs_2"], input_dict["obs"]["act_2"], input_dict["obs"]["obs_3"], input_dict["obs"]["act_3"], input_dict["obs"]["obs_4"], input_dict["obs"]["act_4"]),dim=1)
-
-        x = self.inp1(self._inp1)
-        x = self.inp2(x)
-        x = self.act_out(x)
-        return x, []
-
-    @override(ModelV2)
-    def value_function(self):
-        #assert self._v1 is not None and self._v2 is not None and self._v3 is not None and self._v4 is not None, "must call forward first!"
-        assert self._v1 is not None, "must call forward first!"
-        x = self.inp1_val(self._v1)
-        x = self.inp2_val(x)
-        x = self.val_out(x)
-        return torch.reshape(x, [-1])
-
-class CCFc2(TorchModelV2, nn.Module):
-    def __init__(
-        self, observation_space, action_space, num_outputs, model_config, name
-    ):
-        TorchModelV2.__init__(
-            self, observation_space, action_space, num_outputs, model_config, name
-        )
-        nn.Module.__init__(self)
-
-        self._inp1 = None
-        self._v1 = None
-
-        self.inp1 = SlimFC(SS_FULL_AC2,500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2 = SlimFC(500,500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.act_out = SlimFC(500,self.num_outputs,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-        self.inp1_val = SlimFC(2*(SS_FULL_AC1+ACTION_DIM_AC1)+2*(SS_FULL_AC2+ACTION_DIM_AC2),500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.inp2_val = SlimFC(500,500,activation_fn= nn.Tanh,initializer=torch.nn.init.xavier_uniform_,)
-        self.val_out = SlimFC(500,1,activation_fn= None,initializer=torch.nn.init.xavier_uniform_,)
-
-    @override(ModelV2)
-    def forward(self, input_dict, state, seq_lens):
-        self._inp1 = input_dict["obs"]["obs_1_own"]
-        self._v1 = torch.cat((input_dict["obs"]["obs_1_own"], input_dict["obs"]["act_1_own"], input_dict["obs"]["obs_2"], input_dict["obs"]["act_2"], input_dict["obs"]["obs_3"], input_dict["obs"]["act_3"], input_dict["obs"]["obs_4"], input_dict["obs"]["act_4"]),dim=1)
-
-        x = self.inp1(self._inp1)
-        x = self.inp2(x)
-        x = self.act_out(x)
-        return x, []
-
-    @override(ModelV2)
-    def value_function(self):
-        #assert self._v1 is not None and self._v2 is not None and self._v3 is not None and self._v4 is not None, "must call forward first!"
-        assert self._v1 is not None, "must call forward first!"
-        x = self.inp1_val(self._v1)
-        x = self.inp2_val(x)
-        x = self.val_out(x)
-        return torch.reshape(x, [-1])
-    
-
-class CCEsc1(TorchModelV2, nn.Module):
+class Esc1(TorchModelV2, nn.Module):
     def __init__(
         self, observation_space, action_space, num_outputs, model_config, name
     ):
@@ -693,7 +502,7 @@ class CCEsc1(TorchModelV2, nn.Module):
         x = self.val_out(x)
         return torch.reshape(x, [-1])
     
-class CCEsc2(TorchModelV2, nn.Module):
+class Esc2(TorchModelV2, nn.Module):
     def __init__(
         self, observation_space, action_space, num_outputs, model_config, name
     ):

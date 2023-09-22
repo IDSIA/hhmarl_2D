@@ -3,10 +3,8 @@ Environment for MARL Warsim, where 2 groups of airplanes fight against each othe
 """
 
 import torch
-import time
 import os
 import random
-import json
 import numpy as np
 from math import sin, cos, acos, pi, hypot, radians, exp, sqrt
 from gymnasium import spaces
@@ -18,20 +16,15 @@ from warsim.scenplotter.scenario_plotter import PlotConfig, ColorRGBA, StatusMes
     Airplane, PolyLine, Drawable, Waypoint, Missile, ScenarioPlotter
 
 from warsim.simulator.cmano_simulator import Position, CmanoSimulator, UnitDestroyedEvent
-from warsim.simulator.rafale_rocket import Rafale
-from warsim.simulator.rafale_long import RafaleLong
+from warsim.simulator.ac1 import Rafale
+from warsim.simulator.ac2 import RafaleLong
 from utils.geodesics import geodetic_direct
 from utils.map_limits import MapLimits
 from utils.angles import sum_angles
 
-from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.algorithms.callbacks import DefaultCallbacks
+from models.ac_models_hetero import Fight1, Fight2, Esc1, Esc2
 from ray.rllib.models import ModelCatalog
-from models.ac_models_cc import CCRocket, CCRocketFri, CCRocketDummy
-from models.ac_models_hetero import CCRocketDummyAC1, CCRocketDummyAC2,CCRocketAC1, CCRocketAC2, CCAtt1, CCAtt2, CCFc1, CCFc2, CCEsc1, CCEsc2, CCDummyEsc1, CCDummyEsc2
-from ray.rllib.algorithms.ppo import PPOConfig
-from ray.rllib.policy.policy import PolicySpec, Policy
-from ray.rllib.algorithms.algorithm import Algorithm
+from ray.rllib.policy.policy import Policy
 
 colors = {
     'red_outline': ColorRGBA(0.8, 0.2, 0.2, 1),
@@ -46,48 +39,6 @@ knots_to_ms = 0.514444 # used for predicted state
 ACTION_DIM_AC1 = 4
 ACTION_DIM_AC2 = 3
 
-class BasicMarl(MultiAgentEnv):
-    def __init__(self, env_config):
-        super().__init__()
-        self._skip_env_checking = True
-        self.obs_dim = env_config.get("obs_dim", 0)
-        self.curr_level = env_config.get("curr_level", 5)
-        self.mode = env_config.get("mode", "fight")
-
-        if self.curr_level == 5:
-            self.obs_dim_map = {1: 30, 2:28, 3:30, 4:28} if self.mode == "fight" else {1: 30, 2:29, 3:30, 4:29}
-            self._obs_space_in_preferred_format = {
-                1: spaces.Box(low=np.zeros(self.obs_dim_map[1]), high=np.ones(self.obs_dim_map[1]), dtype=np.float32),
-                2: spaces.Box(low=np.zeros(self.obs_dim_map[2]), high=np.ones(self.obs_dim_map[2]), dtype=np.float32),
-                3: spaces.Box(low=np.zeros(self.obs_dim_map[3]), high=np.ones(self.obs_dim_map[3]), dtype=np.float32),
-                4: spaces.Box(low=np.zeros(self.obs_dim_map[4]), high=np.ones(self.obs_dim_map[4]), dtype=np.float32)
-            }
-            self._action_space_in_preferred_format = {1: spaces.MultiDiscrete([13,9,2,2]), 2: spaces.MultiDiscrete([13,9,2]), 3: spaces.MultiDiscrete([13,9,2,2]), 4: spaces.MultiDiscrete([13,9,2])}
-        else:
-            self.observation_space = spaces.Box(low=np.zeros(self.obs_dim), high=np.ones(self.obs_dim), dtype=np.float32)
-            self.action_space = spaces.MultiDiscrete([13,9,2,2])
-
-    def reset(self, *, seed=None, options=None):
-        return np.zeros(self.obs_dim, dtype=np.float32), {}
-
-    def step(self, action):
-        return np.zeros(self.obs_dim, dtype=np.float32), 0, {"__all__": False}, {"__all__": False}, {}
-    
-class EscapeMarl(MultiAgentEnv):
-    def __init__(self, env_config):
-        super().__init__()
-        self._skip_env_checking = True
-
-        self.observation_space = spaces.Box(low=np.zeros(15), high=np.ones(15), dtype=np.float32)
-        self.action_space = spaces.MultiDiscrete([13,9])
-
-    def reset(self, *, seed=None, options=None):
-        return np.zeros(15, dtype=np.float32), {}
-
-    def step(self, action):
-        return np.zeros(15, dtype=np.float32), 0, {"__all__": False}, {"__all__": False}, {}
-
-#class DogfightScenario(MultiAgentEnv, TaskSettableEnv):
 class DogfightScenario(MultiAgentEnv):
     def __init__(self, env_config):
         super().__init__()
@@ -102,30 +53,17 @@ class DogfightScenario(MultiAgentEnv):
         self.total_num = self.num_agents + self.num_opps
         self.alive_agents = 0
         self.alive_opps = 0
-        
-        self.ss = env_config.get("ss", 1)
-        self.obs_dim = env_config.get("obs_dim", 23)
-        self.horizon = env_config.get("horizon",200)
+
         self.curr_level = env_config.get("level",1)
-        self.restore_path = env_config.get("restore_path", None)
-        self.log_path = env_config.get("log_path", None)
         self.agent_mode = env_config.get("agent_mode", "fight")
-        self.opp_mode = env_config.get("opp_mode", "fight")
-        self.ac_types = env_config.get("ac_type", 1)
-        self.rew_type = env_config.get("rew_type", 'dynamic')
-        self.hetero = env_config.get("hetero", True)
-        self.sequential = env_config.get("sequential", False)
-        
+        self.opp_mode = "fight"
+                
         self.steps = 0
         self.opp_to_attack = {}
         self.opp_to_escape = {}
         self.missile_wait = {}
         self.hardcoded_opps_escaping = False
         self.opps_escaping_time = 0
-        self.firendly_kills = 0
-        self.opp_kills = 0
-        self.got_killed = 0
-        self.sp_update = False
         self.horizon_level = {1: 150, 2:200, 3:300, 4:350, 5:400}
         self.obs_dim_map = {1: 30, 2:28, 3:30, 4:28} if self.agent_mode == "fight" else {1: 30, 2:29, 3:30, 4:29}
 
@@ -151,21 +89,7 @@ class DogfightScenario(MultiAgentEnv):
             self.sp_opps = {}
             self._setup_sp_history()
 
-        # self.ac1_kills = 0
-        # self.ac2_kills = 0
-        # self.ac1_loss = 0
-        # self.ac2_loss = 0
-        # self.ac1_fri_kills = 0
-        # self.ac2_fri_kills = 0
-
-        # data = {"ac1_kills": 0, "ac2_kills": 0, "ac1_loss":0, "ac2_loss":0, "ac1_fri_kills": 0, "ac2_fri_kills":0 }
-        # with open("metrics_L4.json", "w") as file:
-        #     json.dump(data, file)
-
     def reset(self, *, seed=None, options=None):
-        #self._update_metrics()
-        if self.args.persistence:
-            self._update_persistence()
         self.hardcoded_opps_escaping = False
         self.opps_escaping_time = 0
         self.steps = 0
@@ -182,31 +106,30 @@ class DogfightScenario(MultiAgentEnv):
             k = random.randint(1,5)
             self.sp_opp = self.sp_opps[k]
             self.opp_mode = "escape" if k == 5 else "fight"
-        return self._state_cc() if self.agent_mode == "fight" else self._esc_state(), {1:opp_actions, 2:opp_actions}
+        return self._fight_state() if self.agent_mode == "fight" else self._esc_state(), {1:opp_actions, 2:opp_actions}
 
     def step(self, action):
         """
-        Forward current action to sub-env, update sim. 
+        Take a step for all agents in env.
         """
         self.steps += 1
         reward = {}
         opp_actions = {}
 
         if action:
-            reward, opp_actions = self._take_action_get_reward(action)
+            reward, opp_actions = self._take_action(action)
 
-        terminateds = truncateds = {} #{1: self.sim.unit_exists(1), 2: self.sim.unit_exists(2), 3: True, 4:True}
-        terminateds["__all__"] = self.alive_agents <= 0 or self.alive_opps <= 0 or self.steps >= self.horizon
-        truncateds["__all__"] = self.steps >= self.horizon or self.alive_agents <= 0 or self.alive_opps <= 0 
-        return self._state_cc() if self.agent_mode == "fight" else self._esc_state(), reward, terminateds, truncateds, {1:opp_actions, 2:opp_actions}
+        terminateds = truncateds = {}
+        truncateds["__all__"] = terminateds["__all__"] = self.alive_agents <= 0 or self.alive_opps <= 0 or self.steps >= self.horizon
+        return self._fight_state() if self.agent_mode == "fight" else self._esc_state(), reward, terminateds, truncateds, {1:opp_actions, 2:opp_actions}
 
-    def _take_action_get_reward(self, action):
+    def _take_action(self, action):
         """
-        Apply actions to agents and opponents and directly compute rewards.
+        Apply actions to agents and opponents and get rewards.
+        Opponent behavior is scripted: L1 and L2 random, L3 engage closest agent, L4 previous policy, L5 all previous policies randomly assigned.
         """
         rewards = {}
         opp_stats = {}
-        #opp_actions = {3:[0,0,0,0], 4:[0,0,0,0]}
         opp_actions = {3:[0,0,0,0], 4:[0,0,0]}
 
         for i in range(1, self.total_num+1):
@@ -300,6 +223,10 @@ class DogfightScenario(MultiAgentEnv):
         return self._get_rewards(rewards, self.sim.do_tick(), opp_stats), opp_actions
 
     def _get_rewards(self, rewards, events, opp_stats):
+        """
+        Calculating Rewards. 
+        First check for out-of-boundary, then killing rewards.
+        """
 
         for i in range(1, self.total_num + 1):
             if self.sim.unit_exists(i):
@@ -313,188 +240,90 @@ class DogfightScenario(MultiAgentEnv):
                         self.alive_opps -= 1
 
         if self.agent_mode == "fight":
-
             for ev in events:
-                #if isinstance(ev, UnitDestroyedEvent):
-                if self.ss == 1:
-                    if ev.unit_killer.id <= self.num_agents and ev.unit_destroyed.id in range(self.num_agents+1, self.total_num+1):
 
-                        if ev.origin.id >= self.total_num+1 and self.ac_types==1: # rocket
-                            #rewards[ev.unit_killer.id] = np.clip(ev.unit_killer.missile_remain/(ev.unit_killer.rocket_max+1e-9)+0.5,0.5,1.5)
-                            #rewards[ev.unit_killer.id] = 1
-                            rewards[ev.unit_killer.id] = self._shifted_range(ev.unit_killer.missile_remain/ev.unit_killer.rocket_max, 0,1, 1,1.5)
-                        else:
-                            #rewards[ev.unit_killer.id] = np.clip(ev.unit_killer.cannon_remain_secs/ev.unit_killer.cannon_max + opp_stats[ev.unit_killer.id][0], 0.5, 2)
-                            #rewards[ev.unit_killer.id] = 1.5 * self._shifted_range(opp_stats[ev.unit_killer.id][0], 0,1, 0.5,1)
-                            rewards[ev.unit_killer.id] = self._shifted_range(ev.unit_killer.cannon_remain_secs/ev.unit_killer.cannon_max, 0,1, 0.5,1) + self._shifted_range(opp_stats[ev.unit_killer.id][0], 0,1, 0.5,1) #range [1,2]
-
-                        self.alive_opps -= 1
-                        self.opp_kills += 1
-
-                    # killed by opp
-                    elif ev.unit_destroyed.id <= self.num_agents and ev.unit_killer.id in range(self.num_agents+1, self.total_num+1):
-                        rewards[ev.unit_destroyed.id] = -2
-                        self.alive_agents -= 1
-                        self.got_killed += 1
-                else:
-                    if ev.unit_killer.id <= self.num_agents:
-                        if ev.unit_destroyed.id in range(self.num_agents+1, self.total_num+1):
-                            
-                            if ev.origin.id >= self.total_num+1:
-                                rewards[ev.unit_killer.id] = self._shifted_range(ev.unit_killer.missile_remain/ev.unit_killer.rocket_max, 0,1, 1,1.5)
-                            else:
-                                rewards[ev.unit_killer.id] = self._shifted_range(ev.unit_killer.cannon_remain_secs/ev.unit_killer.cannon_max, 0,1, 0.5,1) + self._shifted_range(opp_stats[ev.unit_killer.id][0], 0,1, 0.5,1) #range [1,2]
-
-                            self.alive_opps -= 1
-                            self.opp_kills += 1
-
-                            # if ev.unit_killer.id == 1:
-                            #     self.ac1_kills += 1
-                            # else:
-                            #     self.ac2_kills += 1
-
-                        # killed by friend
-                        elif ev.unit_destroyed.id <= self.num_agents:
-                            rewards[ev.unit_killer.id] = -2
-                            self.alive_agents -= 1
-                            self.firendly_kills += 1
-                            # if ev.unit_killer.id == 1:
-                            #     self.ac1_fri_kills += 1
-                            # else:
-                            #     self.ac2_fri_kills += 1
-
-                    # killed by opp
-                    elif ev.unit_destroyed.id <= self.num_agents and ev.unit_killer.id in range(self.num_agents+1, self.total_num+1):
-                        rewards[ev.unit_destroyed.id] = -2
-                        self.alive_agents -= 1
-                        self.got_killed += 1
-                        # if ev.unit_destroyed.id == 1:
-                        #     self.ac1_loss += 1
-                        # else:
-                        #     self.ac2_loss += 1
-
-        else:
-            for ev in events:
+                # agent kill
                 if ev.unit_killer.id <= self.num_agents:
                     if ev.unit_destroyed.id in range(self.num_agents+1, self.total_num+1):
-
-                        rewards[ev.unit_killer.id] = 1
+                        
+                        if ev.origin.id >= self.total_num+1: #killed by rocket
+                            rewards[ev.unit_killer.id] = self._shifted_range(ev.unit_killer.missile_remain/ev.unit_killer.rocket_max, 0,1, 1,1.5)
+                        else:
+                            rewards[ev.unit_killer.id] = self._shifted_range(ev.unit_killer.cannon_remain_secs/ev.unit_killer.cannon_max, 0,1, 0.5,1) + self._shifted_range(opp_stats[ev.unit_killer.id][0], 0,1, 0.5,1) #range [1,2]
                         self.alive_opps -= 1
-                        self.opp_kills += 1
 
+                    # killed by friend
                     elif ev.unit_destroyed.id <= self.num_agents:
                         rewards[ev.unit_killer.id] = -2
                         self.alive_agents -= 1
-                        self.firendly_kills += 1
 
+                # killed by opp
                 elif ev.unit_destroyed.id <= self.num_agents and ev.unit_killer.id in range(self.num_agents+1, self.total_num+1):
                     rewards[ev.unit_destroyed.id] = -2
                     self.alive_agents -= 1
-                    self.got_killed += 1
+        else:
+            for ev in events:
 
+                # agent kill
+                if ev.unit_killer.id <= self.num_agents:
+                    if ev.unit_destroyed.id in range(self.num_agents+1, self.total_num+1):
+                        rewards[ev.unit_killer.id] = 1
+                        self.alive_opps -= 1
+                    elif ev.unit_destroyed.id <= self.num_agents:
+                        rewards[ev.unit_killer.id] = -2
+                        self.alive_agents -= 1
+
+                # killed by opp
+                elif ev.unit_destroyed.id <= self.num_agents and ev.unit_killer.id in range(self.num_agents+1, self.total_num+1):
+                    rewards[ev.unit_destroyed.id] = -2
+                    self.alive_agents -= 1
+
+            # reward for distance to opps
             for ag_id, d in self.opp_to_escape.items():
                 rew = 0
                 if d and ag_id <= self.num_agents:
                     for d_opp in d:
                         if self.sim.unit_exists(ag_id) and self.sim.unit_exists(d_opp[0]):
-                            if self.rew_type == "const":
-                                d = self._distance(ag_id, d_opp[0])
-                                if d < 0.06: #0.06
-                                    rew -= 0.02
-                                elif d > 0.13: #0.14
-                                    rew += 0.02 #0.02
-                            else:
-                                d = self._distance(ag_id, d_opp[0], True)
-                                rew += np.clip(0.1*(d-0.3), -0.03, 0.03) 
-                                
+                            d = self._distance(ag_id, d_opp[0])
+                            if d < 0.06:
+                                rew -= 0.02
+                            elif d > 0.13:
+                                rew += 0.02
+                            # dynamic reward
+                            # d = self._distance(ag_id, d_opp[0], True)
+                            # rew += np.clip(0.1*(d-0.3), -0.03, 0.03) 
                     try:
                         rewards[ag_id] += rew
                     except:
                         pass
 
-        return rewards      
-
-    def _update_metrics(self):
-        data = None
-        while not data:
-            try:
-                with open("metrics_L4.json", "r") as file:
-                    data = json.load(file)
-            except:
-                pass
-        
-        data["ac1_kills"] += self.ac1_kills
-        data["ac2_kills"] += self.ac2_kills
-        data["ac1_loss"] += self.ac1_loss
-        data["ac2_loss"] += self.ac2_loss
-        data["ac1_fri_kills"] += self.ac1_fri_kills
-        data["ac2_fri_kills"] += self.ac2_fri_kills
-
-        written = False
-        while not written:
-            try:
-                with open("metrics_L4.json", "w") as file:
-                    json.dump(data, file)
-                written= True
-            except:
-                pass
-
-        self.ac1_kills = 0
-        self.ac2_kills = 0
-        self.ac1_loss = 0
-        self.ac2_loss = 0
-        self.ac1_fri_kills = 0
-        self.ac2_fri_kills = 0
-
-    def _update_persistence(self):
-        data = None
-        while not data:
-            try:
-                with open(os.path.join(self.log_path, "metrics.json"), "r") as file:
-                    data = json.load(file)
-            except:
-                pass
-
-        data["friendly_kills"] += self.firendly_kills
-        data["opponent_kills"] += self.opp_kills
-        data["got_killed"] += self.got_killed
-
-        self.curr_level = data["level"]
-        self.sp_update = data["sp_update"]
-
-        data["sp_update"] = False
-
-        self.opp_mode = "fight" if data["escape_wait"] > 0 else "escape"
-
-        written = False
-        while not written:
-            try:
-                with open(os.path.join(self.log_path, "metrics.json"), "w") as file:
-                    json.dump(data, file)
-                written = True
-            except:
-                pass
-
-        self.firendly_kills = 0
-        self.opp_kills = 0
-        self.got_killed = 0
+        return rewards
 
     def _get_policy(self):
-        check_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results', 'SS2_HETERO_Att', 'SS2_L3_HETERO_Att', 'checkpoint')
-        return Policy.from_checkpoint(check_path, ["ac1_policy", "ac2_policy"])
+        try:
+            check_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results', 'Level3_fight_2vs2', 'checkpoint')
+            return Policy.from_checkpoint(check_path, ["ac1_policy", "ac2_policy"])
+        except:
+            raise NameError('Could not find L3 Fight Policy. Store in results/Level3_fight_2vs2/checkpoint')
 
     def _setup_sp_history(self):
         for i in range(1,6):
             if i == 5:
-                ModelCatalog.register_custom_model(f"ac1_model",CCEsc1)
-                ModelCatalog.register_custom_model(f"ac2_model",CCEsc2)
-                check_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results', 'HETERO', 'SS2_HETERO_ESC', 'SS2_L3_HETERO_ESC', 'checkpoint')
-                self.sp_opps[i] = Policy.from_checkpoint(check_path, ["ac1_policy", "ac2_policy"])
+                ModelCatalog.register_custom_model(f"ac1_model",Esc1)
+                ModelCatalog.register_custom_model(f"ac2_model",Esc2)
+                try:
+                    check_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results', 'Level3_escape_2vs2', 'checkpoint')
+                    self.sp_opps[i] = Policy.from_checkpoint(check_path, ["ac1_policy", "ac2_policy"])
+                except:
+                    raise NameError('Could not find L3 Esc Policy. Store in results/Level3_escape_2vs2/checkpoint')
             else:
-                ModelCatalog.register_custom_model(f"ac1_model",CCAtt1)
-                ModelCatalog.register_custom_model(f"ac2_model",CCAtt2)
-                check_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results', 'HETERO', 'SS2_HETERO_Att', f'SS2_L{i}_HETERO_Att', 'checkpoint')
-                self.sp_opps[i] = Policy.from_checkpoint(check_path, ["ac1_policy", "ac2_policy"])
+                ModelCatalog.register_custom_model(f"ac1_model",Fight1)
+                ModelCatalog.register_custom_model(f"ac2_model",Fight2)
+                try:
+                    check_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results', f'Level{i}_fight_2vs2', 'checkpoint')
+                    self.sp_opps[i] = Policy.from_checkpoint(check_path, ["ac1_policy", "ac2_policy"])
+                except:
+                    raise NameError(f'Could not find L{i} Fight Policy. Store in results/Level{i}_fight_2vs2/checkpoint')
 
     def _sp_actions(self, agend_id, unit):
         actions = {}
@@ -523,7 +352,7 @@ class DogfightScenario(MultiAgentEnv):
                     "act_4": np.zeros(ACTION_DIM_AC2),
                 }
 
-        state = self._state_cc(agend_id) if self.opp_mode == "fight" else self._esc_state(agend_id)
+        state = self._fight_state(agend_id) if self.opp_mode == "fight" else self._esc_state(agend_id)
 
         for ag_id, ag_state in state.items():
             if ag_id == agend_id:
@@ -535,10 +364,51 @@ class DogfightScenario(MultiAgentEnv):
 
         return actions
 
-    def _state_cc(self, agent_id=None):
+    def _fight_state(self, agent_id=None):
         """
-        Current observation, stored in state_dict, only containing alive agents.
+        Current observation, stored in state_dict. Destroyed agent's observation is filled with zeros, needed for Ray callback.
         """
+
+        def fri_agent_state(act_agent_id, agent_type="agent"):
+            if agent_type == "agent":
+                oth_agent = 1 if act_agent_id == 2 else 2
+            else:
+                oth_agent = 3 if act_agent_id == 4 else 4
+            if self.sim.unit_exists(oth_agent):
+                unit = self.sim.get_unit(oth_agent)
+                state = []
+                x,y = self.map_limits.relative_position(unit.position.lat, unit.position.lon)
+                state.append(x)
+                state.append(y)
+                state.append(np.clip(unit.speed/unit.max_speed,0,1))
+                state.append(self._heading_diff(act_agent_id, oth_agent))
+                state.append(self._focus_angle(act_agent_id, oth_agent, True))
+                state.append(self._focus_angle(oth_agent, act_agent_id, True))
+                state.append(self._distance(act_agent_id, oth_agent, True))
+                state.append(int(bool(unit.cannon_current_burst_secs > 0) or bool(unit.actual_missile)))
+                return state
+            else:
+                return np.zeros(8)
+
+        def opp_state(opp_id, agent_id, dist):
+            state = []
+            unit = self.sim.get_unit(opp_id)
+            x, y = self.map_limits.relative_position(unit.position.lat, unit.position.lon)
+            state.append(x)
+            state.append(y)
+            state.append(np.clip(unit.speed/unit.max_speed,0,1))
+            state.append(np.clip((unit.heading%359)/359, 0, 1))
+            state.append(self._focus_angle(opp_id, agent_id,True))
+            state.append(self._aspect_angle(agent_id, opp_id))
+            state.append(self._heading_diff(opp_id, agent_id))
+            state.append(dist)
+            state.append(int(unit.cannon_current_burst_secs > 0))
+            if unit.ac_type==1:
+                state.append(int(bool(unit.actual_missile)))
+            else:
+                state.append(0)
+            return state
+
         state_dict = {}
         if agent_id:
             start = agent_id
@@ -570,9 +440,8 @@ class DogfightScenario(MultiAgentEnv):
                         state.append(int(bool(unit.actual_missile)))
                     else:
                         state.append(int(unit.cannon_current_burst_secs > 0))
-                    state.extend(self._opp_state(d_opps[0][0], ag_id, d_opps[0][1]))
-                    if self.ss >= 2:
-                        state.extend(self._oth_agent_state(ag_id, "agent" if ag_id<=self.num_agents else "opp"))
+                    state.extend(opp_state(d_opps[0][0], ag_id, d_opps[0][1]))
+                    state.extend(fri_agent_state(ag_id, "agent" if ag_id<=self.num_agents else "opp"))
                     self.opp_to_attack[ag_id] = d_opps[0][0]
                 else:
                     state = np.zeros(self.obs_dim_map[ag_id], dtype=np.float32)
@@ -658,59 +527,12 @@ class DogfightScenario(MultiAgentEnv):
                     self.opp_to_escape[ag_id] = d_opps
                 else:
                     state = np.zeros(obs_dim[ag_id] if self.opp_mode=="escape" else self.obs_dim_map[ag_id], dtype=np.float32)
-                    #state = np.zeros(obs_dim[ag_id], dtype=np.float32)
             else:
                 state = np.zeros(obs_dim[ag_id] if self.opp_mode=="escape" else self.obs_dim_map[ag_id], dtype=np.float32)
-                #state = np.zeros(obs_dim[ag_id], dtype=np.float32)
 
             state_dict[ag_id] = np.array(state, dtype=np.float32)
 
         return state_dict
-
-    def _oth_agent_state(self, act_agent_id, agent_type="agent"):
-        if agent_type == "agent":
-            oth_agent = 1 if act_agent_id == 2 else 2
-        else:
-            oth_agent = 3 if act_agent_id == 4 else 4
-        if self.sim.unit_exists(oth_agent):
-            unit = self.sim.get_unit(oth_agent)
-            state = []
-            #state.append(unit.ac_type/2)
-            x,y = self.map_limits.relative_position(unit.position.lat, unit.position.lon)
-            state.append(x)
-            state.append(y)
-            state.append(np.clip(unit.speed/unit.max_speed,0,1))
-            state.append(self._heading_diff(act_agent_id, oth_agent))
-            state.append(self._focus_angle(act_agent_id, oth_agent, True))
-            state.append(self._focus_angle(oth_agent, act_agent_id, True))
-            state.append(self._distance(act_agent_id, oth_agent, True))
-            state.append(int(bool(unit.cannon_current_burst_secs > 0) or bool(unit.actual_missile)))
-            return state
-        else:
-            return np.zeros(8) if self.ss == 2 else np.zeros(17)
-            
-    def _opp_state(self, opp_id, agent_id, dist):
-        """
-        Depending on state-space option, compute the opponent part of the whole observation. 
-        """
-        state = []
-        unit = self.sim.get_unit(opp_id)
-        x, y = self.map_limits.relative_position(unit.position.lat, unit.position.lon)
-        #state.append(unit.ac_type/2)
-        state.append(x)
-        state.append(y)
-        state.append(np.clip(unit.speed/unit.max_speed,0,1))
-        state.append(np.clip((unit.heading%359)/359, 0, 1))
-        state.append(self._focus_angle(opp_id, agent_id,True))
-        state.append(self._aspect_angle(agent_id, opp_id))
-        state.append(self._heading_diff(opp_id, agent_id))
-        state.append(dist)
-        state.append(int(unit.cannon_current_burst_secs > 0))
-        if unit.ac_type==1:
-            state.append(int(bool(unit.actual_missile)))
-        else:
-            state.append(0)
-        return state
 
     def _closest_object(self, agent_id, once=False):
         """
@@ -733,7 +555,7 @@ class DogfightScenario(MultiAgentEnv):
 
     def _focus_angle(self, agent_id, opp_id, norm=False):
         """
-        Compute focus angle based on vector angles of current heading direction and position of the two airplanes. 
+        Compute ATA angle based on vector angles of current heading direction and position of the two airplanes. 
         """
         x = np.clip((np.dot(np.array([cos( ((90-self.sim.get_unit(agent_id).heading)%360)*(pi/180) ),sin( ((90-self.sim.get_unit(agent_id).heading)%360)*(pi/180) )]), np.array([self.sim.get_unit(opp_id).position.lon-self.sim.get_unit(agent_id).position.lon, self.sim.get_unit(opp_id).position.lat-self.sim.get_unit(agent_id).position.lat])))/(np.linalg.norm(np.array([cos( ((90-self.sim.get_unit(agent_id).heading)%360)*(pi/180) ),sin( ((90-self.sim.get_unit(agent_id).heading)%360)*(pi/180) )]))*np.linalg.norm(np.array([self.sim.get_unit(opp_id).position.lon-self.sim.get_unit(agent_id).position.lon, self.sim.get_unit(opp_id).position.lat-self.sim.get_unit(agent_id).position.lat]))+1e-10), -1, 1)
         if norm:
@@ -776,7 +598,7 @@ class DogfightScenario(MultiAgentEnv):
     def _escaping_opp(self, unit):
         """
         This ensures that the hardcoded opponents don't stuck in rotating around agents. 
-        So, they shortly escape in the diagonal direction.
+        So, opponents shortly escape in the diagonal direction.
         """
         y, x = self.map_limits.relative_position(unit.position.lat, unit.position.lon)
         if y < 0.5:
@@ -916,9 +738,9 @@ class DogfightScenario(MultiAgentEnv):
             x, y, a = self._sample_state("agent", i, r)
 
             if i == 0:
-                agent_unit = Rafale(Position(y, x, 10_000), heading=a, speed=100, group="agent", friendly_check=self.ss>=2 or self.agent_mode=="escape")
+                agent_unit = Rafale(Position(y, x, 10_000), heading=a, speed=100, group="agent")
             else:
-                agent_unit = RafaleLong(Position(y, x, 10_000), heading=a, speed=100, group="agent", friendly_check=self.ss>=2 or self.agent_mode=="escape")
+                agent_unit = RafaleLong(Position(y, x, 10_000), heading=a, speed=100, group="agent")
 
             self.sim.add_unit(agent_unit)
             self.sim.record_unit_trace(agent_unit.id)
@@ -927,7 +749,7 @@ class DogfightScenario(MultiAgentEnv):
         i = random.randint(0,1)
         x, y, a = self._sample_state("opp", i, r)
 
-        opp_unit = Rafale(Position(y, x, 10_000), heading=a, speed=0 if self.curr_level < 2 else 200, group="opp", friendly_check=self.ss>=2 or self.opp_mode=="escape")
+        opp_unit = Rafale(Position(y, x, 10_000), heading=a, speed=0 if self.curr_level < 2 else 200, group="opp")
         opp_unit.missile_remain = 10 if self.curr_level <= 4 else 5
         opp_unit.rocket_max = 10 if self.curr_level <= 4 else 5
         opp_unit.cannon_max = 400 if self.curr_level <= 4 else 300
@@ -939,7 +761,7 @@ class DogfightScenario(MultiAgentEnv):
         i = 0 if i == 1 else 1
         x, y, a = self._sample_state("opp", i, r)
 
-        opp_unit = RafaleLong(Position(y, x, 10_000), heading=a, speed=0 if self.curr_level < 2 else 200, group="opp", friendly_check=self.ss>=2 or self.opp_mode=="escape")
+        opp_unit = RafaleLong(Position(y, x, 10_000), heading=a, speed=0 if self.curr_level < 2 else 200, group="opp")
         opp_unit.cannon_max = 400 if self.curr_level <= 4 else 300
         opp_unit.cannon_remain_secs = 400 if self.curr_level <= 4 else 300
         self.sim.add_unit(opp_unit)
