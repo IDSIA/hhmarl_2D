@@ -1,7 +1,8 @@
 # HHMARL
 
-This is the official implementation of the method proposed in the paper "Hierarchical Multi-Agent Reinforcement Learning
-for Air Combat Maneuvering". 
+Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Maneuvering, the implementation of the method proposed in this [paper](https://arxiv.org/abs/2309.11247).
+
+![Hierarchy Trajectory](img/hier_pol.png)
 
 ## Requiered Packages 
 
@@ -16,14 +17,20 @@ for Air Combat Maneuvering".
 
 ## Training
 
-Run `train_cc.py` for homogeneous agent trainig, `train_hetero.py` for heterogeneous agents training and `train_hier.py` to train the super-policy (commander). 
+Run `train_hetero.py` for heterogeneous agents training and `train_hier.py` to train the super-policy (commander). The low-level policies must be trained in order to start training of the commander policy. 
 
-`config.py` contain the corresponding arguments to set for training, e.g. `batch_size`. 
-`agent_mode` can be `"fight"` or `"escape"`. `render` stores iteratively the current combat situation as .png file (for a video-like visualization, best to open the generated file `current.png` in VSCode while running the code). 
+`config.py` contain the corresponding arguments to set:
 
-At this stage, low-level policy training is configured for 2vs2 only. High-level commander policy accepts any combat configuration.
+- `agent_mode` is either "fight" or "escape"
+- `level` from 1 to 5
+- `restore` either True or False, to restore training
+- `log_name` to define the experiment name
+- `gpu` either 0 or 1, to use gpu or not
+- `n_agents` and `n_opponents`, to specify the number of agents and opponents
+- `eval` either True or False, for having evaluations stored as images
+- `render` either True or False, to visualize the current combat scenario. It stores iteratively the current combat situation as .png file
 
-`play.py` allows to try out the simulation environment with as many agents as desired. 
+At this stage, low-level policy training is configured **for 2vs2 only**. High-level commander policy accepts any combat configuration.
 
 
 
