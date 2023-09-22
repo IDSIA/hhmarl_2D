@@ -1,5 +1,5 @@
 """
-Fully Centralized Critic Q(s,a) where s and a contain all states and actions.
+Main file for training low-level heterogeneous agents.
 
 ATTENTION: Applicable from ray version 2.3.0!!
 

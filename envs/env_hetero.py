@@ -1,5 +1,5 @@
 """
-Environment for MARL Warsim, where 2 groups of airplanes fight against each other. 
+Low Level Environment for MARL Warsim, where 2 groups of airplanes fight against each other. 
 """
 
 import torch

@@ -1,5 +1,6 @@
 """
-Environment for MARL Warsim, where 2 groups of airplanes fight against each other. 
+High Level environment for MARL Warsim, where 2 groups of airplanes fight against each other.
+Low Level agent policies are included in this env.
 """
 
 import torch

@@ -1,6 +1,7 @@
 """
-ATTENTION: Applicable from ray version 2.3.0!!
+Main file for training the high-level commander policy.
 
+ATTENTION: Applicable from ray version 2.3.0!!
 """
 
 import os
