@@ -2,7 +2,7 @@
 
 Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Maneuvering, the implementation of the method proposed in this [paper](https://arxiv.org/abs/2309.11247).
 
-<img src="img/hier_pol.png" width="200"> <img src="img/fight_pol.png" width="300">
+<img src="img/hier_pol.png" width="250"> <img src="img/fight_pol.png" width="250"> <img src="img/esc_pol.png" width="250">
 
 ## Requiered Packages 
 
