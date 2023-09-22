@@ -4,6 +4,8 @@ Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Man
 
 ![Hierarchy Trajectory](img/hier_pol.png =250x250) ![Fight Trajectory](img/fight_pol.png =100x100)
 
+<img src="img/hier_pol.png" width="48">
+
 ## Requiered Packages 
 
 - ray["rllib"] == 2.4.0
