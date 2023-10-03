@@ -38,10 +38,11 @@ class Config(object):
 
         if self.args.restore:
             if self.args.restore_path is None:
-                self.args.restore_path = os.path.join(os.path.dirname(__file__), 'results', f'Level{self.args.level-1}_{self.args.n_agents}vs{self.args.n_opponents}_{self.args.train_config}', 'checkpoint')
+                self.args.restore_path = os.path.join(os.path.dirname(__file__), 'results', f'Level{self.args.level-1}_{self.args.agent_mode}_{self.args.n_agents}vs{self.args.n_opponents}', 'checkpoint')
                 
         horizons = {1: 150, 2:200, 3:300, 4:300, 5:400}
         self.args.horizon = horizons[self.args.level]
+        self.args.eval = True if self.args.render else self.args.eval
 
     def set_env(self):
         self.args.env_config = {

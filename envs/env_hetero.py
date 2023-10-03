@@ -85,7 +85,7 @@ class DogfightScenario(MultiAgentEnv):
         if self.curr_level == 4:
            self.sp_opp = self._get_policy()
 
-        elif self.curr_level == 5:
+        elif self.curr_level >= 5:
             self.sp_opps = {}
             self._setup_sp_history()
 
