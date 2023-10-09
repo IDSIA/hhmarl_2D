@@ -14,6 +14,7 @@ Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Man
 - pycairo == 1.23.0
 - cartopy >= 0.21.0
 - geographiclib == 2.0
+- tqdm
 
 ## Training
 
