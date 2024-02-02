@@ -8,7 +8,7 @@ Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Man
 
 We use low-level policies for either fight or escape maneuvers. These will be first trained, then employed in the high-level hierarchy as part of environment.
 
-<img src="img/policies.png" width="250">
+<img src="img/policies.png" width="300">
 
 ## Requiered Packages 
 
@@ -43,6 +43,7 @@ Most important arguments to set are:
 - `render` either True or False, to visualize the current combat scenario. It stores iteratively the current combat situation as .png file
 - `map_size` is a float that will be mapped as -> x*100 = x[km], e.g. 0.3 -> 30 km per axis. 
 - `friendly_kill` to consider friendly kill or not. Default True.
+- `friendly_punish` if both agents to punish if friendly kill occurred. Default True.
 
 ### Curriculum Learning
 
@@ -62,4 +63,4 @@ Change `N_OPPS_HL` in `env_hier.py`, `train_hier.py` and `ac_models_hier.py` to 
 Ray allows training on GPU but during several experiments, the performance was worse compared to CPU. Reason still unknown. This might improve in future versions. In our case, GPU was an RTX 3080Ti and CPU i9-13900H.
 
 ## Note
-HHMARL 3D is on its way :) 
+HHMARL 3D is on its way with more advanced rendering ...

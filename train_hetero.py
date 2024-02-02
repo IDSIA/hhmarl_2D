@@ -1,10 +1,6 @@
 """
 Main file for training low-level heterogeneous agents.
-
-ATTENTION: Applicable from ray version 2.3.0!!
-
 HETEROGENEOUS: Agend IDs to AC types: 1->1, 2->2, 3->1, 4->2
-
 """
 
 import os
