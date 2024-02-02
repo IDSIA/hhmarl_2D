@@ -11,6 +11,7 @@ import os
 import time
 import shutil
 import tqdm
+import torch
 import numpy as np
 from gymnasium import spaces
 from tensorboard import program
@@ -20,14 +21,16 @@ from ray.rllib.models import ModelCatalog
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
-from models.ac_models_hetero import Fight1, Fight2, Esc1, Esc2, DummyFight1, DummyFight2, DummyEsc1, DummyEsc2
-from config_hetero import Config
-from envs.env_hetero import DogfightScenario
-import torch
-
+from models.ac_models_hetero import Esc1, Esc2, Fight1, Fight2
+from config import Config
+from envs.env_hetero import LowLevelEnv
 
 ACTION_DIM_AC1 = 4
 ACTION_DIM_AC2 = 3
+OBS_AC1 = 26
+OBS_AC2 = 24
+OBS_ESC_AC1 = 30
+OBS_ESC_AC2 = 29
 
 def update_logs(args, log_dir, level, epoch):
     """
@@ -52,7 +55,7 @@ def update_logs(args, log_dir, level, epoch):
     shutil.copytree(check,result_dir,symlinks=False,dirs_exist_ok=False)
     shutil.copy(event,result_dir)
 
-def evaluate(args, algo, env, epoch, level):
+def evaluate(args, algo, env, epoch, level, it):
     """
     Evaluations are stored as pictures of combat scenarios, with rewards in filename.
     """
@@ -61,23 +64,15 @@ def evaluate(args, algo, env, epoch, level):
             return {
                 "obs_1_own": obs[1] ,
                 "obs_2": obs[2],
-                "obs_3": obs[3],
-                "obs_4": obs[4],
                 "act_1_own": np.zeros(ACTION_DIM_AC1),
                 "act_2": np.zeros(ACTION_DIM_AC2),
-                "act_3": np.zeros(ACTION_DIM_AC1),
-                "act_4": np.zeros(ACTION_DIM_AC2),
             }
         elif id == 2:
             return {
                 "obs_1_own": obs[2] ,
                 "obs_2": obs[1],
-                "obs_3": obs[3],
-                "obs_4": obs[4],
                 "act_1_own": np.zeros(ACTION_DIM_AC2),
                 "act_2": np.zeros(ACTION_DIM_AC1),
-                "act_3": np.zeros(ACTION_DIM_AC1),
-                "act_4": np.zeros(ACTION_DIM_AC2),
             }
     
     state, _ = env.reset()
@@ -87,12 +82,11 @@ def evaluate(args, algo, env, epoch, level):
     while not done:
         actions = {}
         for ag_id in state.keys():
-            if ag_id <= 2:
-                a = algo.compute_single_action(observation=cc_obs(state, ag_id), state=torch.zeros(1), policy_id=f"ac{ag_id}_policy")
-                actions[ag_id] = a[0]
+            a = algo.compute_single_action(observation=cc_obs(state, ag_id), state=torch.zeros(1), policy_id=f"ac{ag_id}_policy", explore=False)
+            actions[ag_id] = a[0]
 
-        state, rew, hist, trunc, _ = env.step(actions)
-        done = hist["__all__"] or trunc["__all__"]
+        state, rew, term, trunc, _ = env.step(actions)
+        done = term["__all__"] or trunc["__all__"]
         for r in rew.values():
             reward += r
 
@@ -107,30 +101,21 @@ def evaluate(args, algo, env, epoch, level):
 def make_checkpoint(args, algo, log_dir, epoch, level, env=None):
     algo.save()
     update_logs(args, log_dir, level, epoch)
-    if args.eval and epoch%100==0:
-        for _ in range(2):
-            evaluate(args, algo, env, epoch, level)
-
-def assign_policy(agent_id, episode, worker, **kwargs):
-    if agent_id == 1:
-        return "ac1_policy"
-    elif agent_id == 2:
-        return "ac2_policy"
-    elif agent_id == 3:
-        return "dummy_policy_ac1"
-    elif agent_id == 4:
-        return "dummy_policy_ac2"
+    for it in range(2):
+        if args.level >= 3:
+            algo.export_policy_model(os.path.join(os.path.dirname(__file__), 'policies'), f'ac{it+1}_policy')
+            policy_name = f'L{args.level}_AC{it+1}' if args.agent_mode == "fight" else f'Esc_AC{it+1}'
+            os.rename('policies/model.pt', f'policies/{policy_name}.pt')
+        if args.eval and epoch%200==0:
+            evaluate(args, algo, env, epoch, level, it)
 
 def get_policy(args):
     """
-    Agents get assigned the neural networks CCAtt1, CCAtt2, CCEsc1 and CCEsc2. 
-    Opponents need to get assigned also a network to have them registered as 'agents' in Ray. This is needed to get their IDs in callbacks.
-    We assign them a dummy network, which won't be used and updated.
+    Agents get assigned the neural networks Fight1, Fight2 and Esc1, Esc2.
     """
-
     class CustomCallback(DefaultCallbacks):
         """
-        This callback is used to have fully observable critic. Other agent's and opponent's
+        This callback is used to have fully observable critic. Other agent's
         observations and actions will be added to this episode batch.
 
         ATTENTION: This callback is set up for 2vs2 training.  
@@ -152,9 +137,8 @@ def get_policy(args):
             own_act = np.squeeze(own_batch[SampleBatch.ACTIONS])
             _, fri_batch = original_batches[other_id]
             fri_act = np.squeeze(fri_batch[SampleBatch.ACTIONS])
-            opp_acts = postprocessed_batch[SampleBatch.INFOS] # list with dicts {3:[act], 4:[act]}
             
-            acts = [own_act, fri_act, opp_acts]
+            acts = [own_act, fri_act]
 
             for i, act in enumerate(acts):
                 if agent_id == 1 and i == 0 or agent_id==2 and i==1:
@@ -177,29 +161,6 @@ def get_policy(args):
                         to_update[:,i] = act[:,0]/12.0
                         to_update[:,i+1] = act[:,1]/8.0
                         to_update[:,i+2] = act[:,2]
-                    
-                else:
-                    act3 = np.zeros((len(act),4), dtype=np.float32)
-                    act4 = np.zeros((len(act),3), dtype=np.float32)
-                    for j, ac in enumerate(act):
-                        try:
-                            ac = ac[agent_id]
-                        except:
-                            pass
-                        a3 = ac[3] #act list opp3
-                        a4 = ac[4] #act list opp4
-
-                        act3[j,0] = a3[0]/12.0
-                        act3[j,1] = a3[1]/8.0
-                        act3[j,2] = a3[2]
-                        act3[j,3] = a3[3]
-
-                        act4[j,0] = a4[0]/12.0
-                        act4[j,1] = a4[1]/8.0
-                        act4[j,2] = a4[2]
-
-                    to_update[:, 7:11] = act3
-                    to_update[:, 11:14] = act4
 
     def central_critic_observer(agent_obs, **kw):
         """
@@ -210,61 +171,41 @@ def get_policy(args):
             1: {
                 "obs_1_own": agent_obs[1] ,
                 "obs_2": agent_obs[2],
-                "obs_3": agent_obs[3],
-                "obs_4": agent_obs[4],
                 "act_1_own": np.zeros(ACTION_DIM_AC1),
                 "act_2": np.zeros(ACTION_DIM_AC2),
-                "act_3": np.zeros(ACTION_DIM_AC1),
-                "act_4": np.zeros(ACTION_DIM_AC2),
             },
             2: {
                 "obs_1_own": agent_obs[2] ,
                 "obs_2": agent_obs[1],
-                "obs_3": agent_obs[3],
-                "obs_4": agent_obs[4],
                 "act_1_own": np.zeros(ACTION_DIM_AC2),
                 "act_2": np.zeros(ACTION_DIM_AC1),
-                "act_3": np.zeros(ACTION_DIM_AC1),
-                "act_4": np.zeros(ACTION_DIM_AC2),
             }
         }
         return new_obs
 
     observer_space_ac1 = spaces.Dict(
         {
-            "obs_1_own": spaces.Box(low=0, high=1, shape=(30,)),
-            "obs_2": spaces.Box(low=0, high=1, shape=(28+int(args.agent_mode=="escape"),)),
-            "obs_3": spaces.Box(low=0, high=1, shape=(30,)),
-            "obs_4": spaces.Box(low=0, high=1, shape=(28+int(args.agent_mode=="escape"),)),
+            "obs_1_own": spaces.Box(low=0, high=1, shape=(OBS_AC1 if args.agent_mode=="fight" else OBS_ESC_AC1,)),
+            "obs_2": spaces.Box(low=0, high=1, shape=(OBS_AC2 if args.agent_mode=="fight" else OBS_ESC_AC2,)),
             "act_1_own": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC1,), dtype=np.float32),
             "act_2": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC2,), dtype=np.float32),
-            "act_3": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC1,), dtype=np.float32),
-            "act_4": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC2,), dtype=np.float32),
         }
     )
     observer_space_ac2 = spaces.Dict(
         {
-            "obs_1_own": spaces.Box(low=0, high=1, shape=(28+int(args.agent_mode=="escape"),)),
-            "obs_2": spaces.Box(low=0, high=1, shape=(30,)),
-            "obs_3": spaces.Box(low=0, high=1, shape=(30,)),
-            "obs_4": spaces.Box(low=0, high=1, shape=(28+int(args.agent_mode=="escape"),)),
+            "obs_1_own": spaces.Box(low=0, high=1, shape=(OBS_AC2 if args.agent_mode=="fight" else OBS_ESC_AC2,)),
+            "obs_2": spaces.Box(low=0, high=1, shape=(OBS_AC1 if args.agent_mode=="fight" else OBS_ESC_AC1,)),
             "act_1_own": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC2,), dtype=np.float32),
             "act_2": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC1,), dtype=np.float32),
-            "act_3": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC1,), dtype=np.float32),
-            "act_4": spaces.Box(low=0, high=12, shape=(ACTION_DIM_AC2,), dtype=np.float32),
         }
     )
 
     if args.agent_mode == "escape":
-        ModelCatalog.register_custom_model("ac1_model",Esc1)
-        ModelCatalog.register_custom_model("ac2_model",Esc2)
-        ModelCatalog.register_custom_model("dummy_model_ac1",DummyEsc1)
-        ModelCatalog.register_custom_model("dummy_model_ac2",DummyEsc2)
+        ModelCatalog.register_custom_model("ac1_model_esc",Esc1)
+        ModelCatalog.register_custom_model("ac2_model_esc",Esc2)
     else:
-        ModelCatalog.register_custom_model("ac1_model_l5" if args.level == 5 else 'ac1_model', Fight1) # 'ac1_model' until level4, ac1_model_l5 at level5 because of esc policy registration
-        ModelCatalog.register_custom_model("ac2_model_l5" if args.level == 5 else 'ac2_model',Fight2)
-        ModelCatalog.register_custom_model("dummy_model_ac1",DummyFight1)
-        ModelCatalog.register_custom_model("dummy_model_ac2",DummyFight2)
+        ModelCatalog.register_custom_model('ac1_model', Fight1) 
+        ModelCatalog.register_custom_model('ac2_model', Fight2)
 
     action_space_ac1 = spaces.MultiDiscrete([13,9,2,2])
     action_space_ac2 = spaces.MultiDiscrete([13,9,2])
@@ -274,8 +215,8 @@ def get_policy(args):
         .rollouts(num_rollout_workers=args.num_workers, batch_mode="complete_episodes", enable_connectors=False) #compare with cetralized_critic_2.py
         .resources(num_gpus=args.gpu)
         .evaluation(evaluation_interval=None)
-        .environment(env=DogfightScenario, env_config=args.env_config)
-        .training(train_batch_size=args.batch_size, gamma=0.99, clip_param=0.25,lr=1e-4, lambda_=0.95, sgd_minibatch_size=256)
+        .environment(env=LowLevelEnv, env_config=args.env_config)
+        .training(train_batch_size=args.batch_size, gamma=0.99, clip_param=0.25,lr=1e-4, lambda_=0.95, sgd_minibatch_size=args.mini_batch_size)
         .framework("torch")
         .multi_agent(policies={
                 "ac1_policy": PolicySpec(
@@ -284,7 +225,7 @@ def get_policy(args):
                     action_space_ac1,
                     config={
                         "model": {
-                            "custom_model": "ac1_model_l5" if args.level == 5 else 'ac1_model'
+                            "custom_model": "ac1_model_esc" if args.agent_mode=="escape" else 'ac1_model'
                         }
                     }
                 ),
@@ -294,32 +235,12 @@ def get_policy(args):
                     action_space_ac2,
                     config={
                         "model": {
-                            "custom_model": "ac2_model_l5" if args.level == 5 else 'ac2_model'
-                        }
-                    }
-                ),
-                "dummy_policy_ac1": PolicySpec(
-                    None,
-                    observer_space_ac1,
-                    action_space_ac1,
-                    config={
-                        "model": {
-                            "custom_model": "dummy_model_ac1"
-                        }
-                    }
-                ),
-                "dummy_policy_ac2": PolicySpec(
-                    None,
-                    observer_space_ac2,
-                    action_space_ac2,
-                    config={
-                        "model": {
-                            "custom_model": "dummy_model_ac2"
+                            "custom_model": "ac2_model_esc" if args.agent_mode=="escape" else 'ac2_model'
                         }
                     }
                 )
             },
-            policy_mapping_fn=assign_policy,
+            policy_mapping_fn=lambda agent_id, episode, worker, **kwargs: f'ac{agent_id}_policy',
             policies_to_train=["ac1_policy", "ac2_policy"],
             observation_fn=central_critic_observer)
         .callbacks(CustomCallback)
@@ -328,7 +249,7 @@ def get_policy(args):
     return algo
 
 if __name__ == '__main__':
-    args = Config().get_arguments
+    args = Config(0).get_arguments
     test_env = None
     algo = get_policy(args)
 
@@ -338,13 +259,20 @@ if __name__ == '__main__':
         else:
             algo.restore(os.path.join(args.log_path, "checkpoint"))
     if args.eval:
-        test_env = DogfightScenario(args.env_config)
+        test_env = LowLevelEnv(args.env_config)
 
     log_dir = os.path.normpath(algo.logdir)
     tb = program.TensorBoard()
-    tb.configure(argv=[None, '--logdir', log_dir])
-    #tb.configure(argv=[None, '--logdir', log_dir, '--port=6007'])
-    url = tb.launch()
+    port = 6006
+    started = False
+    url = None
+    while not started:
+        try:
+            tb.configure(argv=[None, '--logdir', log_dir, '--bind_all', f'--port={port}'])
+            url = tb.launch()
+            started = True
+        except:
+            port += 1
 
     print("\n", "--- NO ERRORS FOUND, STARTING TRAINING ---")
 
@@ -361,4 +289,3 @@ if __name__ == '__main__':
         
         if i % 50 == 0:
             make_checkpoint(args, algo, log_dir, i, args.level, test_env)
-

@@ -1,12 +1,15 @@
 import numpy as np
 from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.torch.misc import SlimFC
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.recurrent_net import RecurrentNetwork
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
 torch, nn = try_import_torch()
+
+N_OPP_HL = 2
+OBS_OPP = 10
+OBS_DIM = 14+OBS_OPP*N_OPP_HL
 
 SHARED_LAYER = SlimFC(
     500,
@@ -34,13 +37,13 @@ class CommanderGru(RecurrentNetwork, nn.Module):
             4,50, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.inp2 = SlimFC(
-            27,200, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
+            N_OPP_HL*OBS_OPP,200, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.inp3 = SlimFC(
             10,50, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.inp4 = SlimFC(
-            41,200, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
+            OBS_DIM,200, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.act_out = SlimFC(
             500,num_outputs, activation_fn=None, initializer=torch.nn.init.orthogonal_,
@@ -48,16 +51,16 @@ class CommanderGru(RecurrentNetwork, nn.Module):
         
 
         self.v1 = SlimFC(
-            42,100, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
+            OBS_DIM+1,100, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.v2 = SlimFC(
-            42,100, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
+            OBS_DIM+1,100, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.v3 = SlimFC(
-            42,100, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
+            OBS_DIM+1,100, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.v4 = SlimFC(
-            126,200, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
+            3*(OBS_DIM+1),200, activation_fn= nn.Tanh, initializer=torch.nn.init.orthogonal_,
         )
         self.val_out = SlimFC(
             500,1, activation_fn=None, initializer=torch.nn.init.orthogonal_,
@@ -65,14 +68,13 @@ class CommanderGru(RecurrentNetwork, nn.Module):
 
     @override(RecurrentNetwork)
     def get_initial_state(self):
-        #return [torch.zeros(self.rnn_dim).to('cuda'), torch.zeros(self.rnn_dim).to('cuda')]
         return [torch.zeros(200), torch.zeros(200)]
     
     @override(ModelV2)
     def forward(self, input_dict, state, seq_lens):
         self._inp1 = input_dict["obs"]["obs_1_own"][:,:4]
-        self._inp2 = input_dict["obs"]["obs_1_own"][:,4:31]
-        self._inp3 = input_dict["obs"]["obs_1_own"][:,31:]
+        self._inp2 = input_dict["obs"]["obs_1_own"][:,4:4+N_OPP_HL*OBS_OPP]
+        self._inp3 = input_dict["obs"]["obs_1_own"][:,4+N_OPP_HL*OBS_OPP:]
         self._inp4 = input_dict["obs"]["obs_1_own"]
 
         self._v1 = torch.cat((input_dict["obs"]["obs_1_own"], input_dict["obs"]["act_1_own"]),dim=1)
@@ -106,6 +108,5 @@ class CommanderGru(RecurrentNetwork, nn.Module):
     
     @override(ModelV2)
     def value_function(self):
-        #assert self._v1 is not None and self._v2 is not None and self._v3 is not None and self._v4 is not None, "must call forward first!"
         assert self._val is not None, "must call forward first!"
         return torch.reshape(self._val, [-1])

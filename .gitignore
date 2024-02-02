@@ -1,3 +1,6 @@
 venv/
+.vscode/
 __pycache__/
-results/
+results*/
+policies*/
+backups/

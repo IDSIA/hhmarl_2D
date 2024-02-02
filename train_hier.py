@@ -8,6 +8,8 @@ import os
 import time
 import shutil
 import tqdm
+import torch
+import logging
 import numpy as np
 from gymnasium import spaces
 from tensorboard import program
@@ -18,11 +20,12 @@ from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from models.ac_models_hier import CommanderGru
-from config_hier import Config
-from envs.env_hier import DogfightScenario
-import torch
-import logging
+from config import Config
+from envs.env_hier import HighLevelEnv
 
+N_OPP_HL = 2
+ACT_DIM = N_OPP_HL+1
+OBS_DIM = 14+10*N_OPP_HL
 
 def update_logs(args, log_dir):
     """
@@ -53,8 +56,8 @@ def evaluate(args, algo, env, epoch):
     def cc_obs(obs):
         return {
             "obs_1_own": obs,
-            "obs_2": np.zeros(41, dtype=np.float32),
-            "obs_3": np.zeros(41, dtype=np.float32),
+            "obs_2": np.zeros(OBS_DIM, dtype=np.float32),
+            "obs_3": np.zeros(OBS_DIM, dtype=np.float32),
             "act_1_own": np.zeros(1),
             "act_2": np.zeros(1),
             "act_3": np.zeros(1),
@@ -128,7 +131,7 @@ def get_policy(args):
                 acts.append(oth_act)
             
             for i, act in enumerate(acts):
-                to_update[:,i] = act
+                to_update[:,i] = act/3
 
     def central_critic_observer(agent_obs, **kw):
         """
@@ -164,15 +167,15 @@ def get_policy(args):
         return new_obs
 
     ModelCatalog.register_custom_model("commander_model",CommanderGru)
-    action_space = spaces.Discrete(4)
+    action_space = spaces.Discrete(ACT_DIM)
     observer_space = spaces.Dict(
         {
-            "obs_1_own": spaces.Box(low=0, high=1, shape=(41,)),
-            "obs_2": spaces.Box(low=0, high=1, shape=(41,)),
-            "obs_3": spaces.Box(low=0, high=1, shape=(41,)),
-            "act_1_own": spaces.Box(low=0, high=3, shape=(1,), dtype=np.float32),
-            "act_2": spaces.Box(low=0, high=3, shape=(1,), dtype=np.float32),
-            "act_3": spaces.Box(low=0, high=3, shape=(1,), dtype=np.float32),
+            "obs_1_own": spaces.Box(low=0, high=1, shape=(OBS_DIM,)),
+            "obs_2": spaces.Box(low=0, high=1, shape=(OBS_DIM,)),
+            "obs_3": spaces.Box(low=0, high=1, shape=(OBS_DIM,)),
+            "act_1_own": spaces.Box(low=0, high=ACT_DIM-1, shape=(1,), dtype=np.float32),
+            "act_2": spaces.Box(low=0, high=ACT_DIM-1, shape=(1,), dtype=np.float32),
+            "act_3": spaces.Box(low=0, high=ACT_DIM-1, shape=(1,), dtype=np.float32),
         }
     )
 
@@ -181,7 +184,7 @@ def get_policy(args):
         .rollouts(num_rollout_workers=args.num_workers, batch_mode="complete_episodes", enable_connectors=False) #compare with cetralized_critic_2.py
         .resources(num_gpus=args.gpu)
         .evaluation(evaluation_interval=None)
-        .environment(env=DogfightScenario, env_config=args.env_config)
+        .environment(env=HighLevelEnv, env_config=args.env_config)
         .training(train_batch_size=args.batch_size, gamma=0.99, clip_param=0.25,lr=1e-4, sgd_minibatch_size=args.mini_batch_size)
         .framework("torch")
 
@@ -208,7 +211,7 @@ def get_policy(args):
 if __name__ == '__main__':
     rllib_logger = logging.getLogger("ray.rllib")
     rllib_logger.setLevel(logging.ERROR)
-    args = Config().get_arguments
+    args = Config(1).get_arguments
     test_env = None
     algo = get_policy(args)
 
@@ -218,13 +221,19 @@ if __name__ == '__main__':
         else:
             algo.restore(os.path.join(args.log_path, "checkpoint"))
     if args.eval:
-        test_env = DogfightScenario(args.env_config)
+        test_env = HighLevelEnv(args.env_config)
 
     log_dir = os.path.normpath(algo.logdir)
     tb = program.TensorBoard()
-    tb.configure(argv=[None, '--logdir', log_dir])
-    #tb.configure(argv=[None, '--logdir', log_dir, '--port=6007'])
-    url = tb.launch()
+    port = 6006
+    started = False
+    while not started:
+        try:
+            tb.configure(argv=[None, '--logdir', log_dir, '--bind_all', f'--port={port}'])
+            url = tb.launch()
+            started = True
+        except:
+            port += 1
 
     print("\n", "--- NO ERRORS FOUND, STARTING TRAINING ---")
 
