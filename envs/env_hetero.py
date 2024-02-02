@@ -93,7 +93,7 @@ class LowLevelEnv(HHMARLBaseEnv):
                 opps = self._nearby_object(ag_id)
                 if opps:
                     unit = self.sim.get_unit(ag_id)
-                    state = self.fight_state_values(ag_id, unit, opps[0], fri_ac_id(agent_id)) if mode == "fight" else self.esc_state_values(ag_id, unit, opps, fri_ac_id(agent_id))
+                    state = self.fight_state_values(ag_id, unit, opps[0], fri_ac_id(ag_id)) if mode == "fight" else self.esc_state_values(ag_id, unit, opps, fri_ac_id(ag_id))
                     self.opp_to_attack[ag_id] = opps[0][0]
                     assert len(state) == obs_dim[ag_id], f"{mode} state len {len(state)} is not as required ({obs_dim[ag_id]}) for agent {ag_id}"
                 else:
