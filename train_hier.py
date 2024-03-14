@@ -129,7 +129,7 @@ def get_policy(args):
                 acts.append(oth_act)
             
             for i, act in enumerate(acts):
-                to_update[:,i] = act/3
+                to_update[:,i] = act/N_OPP_HL
 
     def central_critic_observer(agent_obs, **kw):
         """
@@ -183,7 +183,7 @@ def get_policy(args):
         .resources(num_gpus=args.gpu)
         .evaluation(evaluation_interval=None)
         .environment(env=HighLevelEnv, env_config=args.env_config)
-        .training(train_batch_size=args.batch_size, gamma=0.99, clip_param=0.25,lr=1e-4, sgd_minibatch_size=args.mini_batch_size)
+        .training(train_batch_size=args.batch_size, kl_target=0.05, gamma=0.99, clip_param=0.25,lr=1e-4, sgd_minibatch_size=args.mini_batch_size)
         .framework("torch")
 
         # even though only 'one commander agent' is acting, we use multi-agent to have centalized critic option -> CTDE
@@ -244,7 +244,7 @@ if __name__ == '__main__':
         t = time.time()
         result = algo.train()
         time_acc += time.time()-t
-        iters.set_description(f"{i}) Reward = {result['episode_reward_mean']:.2f} | Time = {round(time_acc/(i+1), 3)} | TB: {url} | Progress")
+        iters.set_description(f"{i}) Reward = {result['episode_reward_mean']:.2f} | Avg. Episode Time = {round(time_acc/(i+1), 3)} | TB: {url} | Progress")
         
         if i % 50 == 0:
             make_checkpoint(args, algo, log_dir, i, test_env)

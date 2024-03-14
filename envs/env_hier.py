@@ -29,8 +29,8 @@ class HighLevelEnv(HHMARLBaseEnv):
     """
     def __init__(self, env_config):
         self.args = env_config.get("args", None)
-        self.n_sub_steps = env_config.get("sub_steps", 25) #standard number of low-level steps
-        self.min_sub_steps = 20 #min number of low-level steps
+        self.n_sub_steps = env_config.get("sub_steps", 20) #standard number of low-level steps
+        self.min_sub_steps = 15
 
         self.observation_space = spaces.Box(low=np.zeros(OBS_HL), high=np.ones(OBS_HL), dtype=np.float32)
         self.action_space = spaces.Discrete(N_OPP_HL+1)
@@ -92,7 +92,7 @@ class HighLevelEnv(HHMARLBaseEnv):
             else:
                 if self.sim.unit_exists(ag_id):
                     # for opponents, only need to store the closest agent
-                    # explicitrly exclude from the loop above to not fill values in state_dict
+                    # explicitly exclude from the loop above to not fill values in state_dict
                     self.opp_to_attack[ag_id] = self._nearby_object(ag_id)
         return state_dict
 
@@ -118,7 +118,7 @@ class HighLevelEnv(HHMARLBaseEnv):
         self.commander_actions = commander_actions
 
         opp_behaviour = {i: "escape" if self.steps % 20 in range(7) and bool(random.randint(0,1)) else "fight" for i in range(self.args.num_agents+1, self.args.total_num+1)}
-        self.min_sub_steps = random.randint(18,25)
+        self.min_sub_steps = random.randint(13,20)
 
         # Select opp to attack and assess action
         rewards = self._action_assess(rewards)
@@ -165,12 +165,20 @@ class HighLevelEnv(HHMARLBaseEnv):
                             self.commander_actions[i] = 1
 
                         if opp_id:
-                            if self._distance(i, opp_id) < 0.1 and self._focus_angle(i, opp_id) < 25:
+                            if self._distance(i, opp_id) < 0.1 and self._focus_angle(i, opp_id) < 15:
                                 rewards[i] = 0.1
                             else:
                                 rewards[i] = 0
                         else:
-                            rewards[i] = -0.2
+                            rewards[i] = -0.1
+                        
+                        # cl_opp = self.opp_to_attack[i][0][0]
+                        # if self._distance(cl_opp, i) < 0.1 and self._focus_angle(cl_opp, i) < 10 and self._focus_angle(i, cl_opp) > 30:
+                        #     rewards[i] = -0.1
+                    else:
+                        cl_opp = self.opp_to_attack[i][0][0]
+                        if self._distance(cl_opp, i) < 0.1 and self._focus_angle(cl_opp, i) < 15 and self._focus_angle(i, cl_opp) > 30:
+                            rewards[i] = 0.1
                 else:
                     # assign closest agent for opponents. Sometimes, randomly select another agent to attack.
                     possible_agent_ids = len(self.opp_to_attack[i])
@@ -187,7 +195,7 @@ class HighLevelEnv(HHMARLBaseEnv):
     def _surrounding_event(self):
         def eval_event(ag_id, opp_id):
             if self._distance(ag_id, opp_id) < 0.1:
-                if self._focus_angle(ag_id, opp_id) < 25 or self._focus_angle(opp_id, ag_id) < 25:
+                if self._focus_angle(ag_id, opp_id) < 15 or self._focus_angle(opp_id, ag_id) < 15:
                     return True
             return False
         

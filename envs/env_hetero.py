@@ -44,7 +44,7 @@ class LowLevelEnv(HHMARLBaseEnv):
             4: spaces.MultiDiscrete([13,9,2])
             }
         )
-        self._agent_ids = set(range(1,self.args.total_num+1))
+        self._agent_ids = set(range(1,self.args.num_agents+1))
 
         super().__init__(self.args.map_size)
 
@@ -202,32 +202,20 @@ class LowLevelEnv(HHMARLBaseEnv):
             for i in range(1, self.args.num_agents+1):
                 if self.sim.unit_exists(i):
                     u = self.sim.get_unit(i)
-                    x = u.position.lon
-                    y = u.position.lat
-                    #speed-bound
-                    if x > 7.025 and x < 7.275 and y > 5.025 and y < 5.275:
-                        if u.ac_type == 1 and u.speed > 600:
-                            rews[i].append(0.02)
-                        if u.ac_type == 2 and u.speed > 450:
-                            rews[i].append(0.02)
-                    else:
-                        rews[i].append(-0.02)
+                    # considering all opps
                     for j in range(self.args.num_agents+1, self.args.total_num+1):
                         if self.sim.unit_exists(j):
-                            #u = self.sim.get_unit(i)
                             d = self._distance(i, j)
                             if d < 0.06:
                                 rews[i].append(-0.02)
-                                if self._focus_angle(j, i) < 15: #25
-                                    rews[i].append(-0.05)
+                                # if self._focus_angle(j, i) < 15: #25
+                                #     rews[i].append(-0.05)
+                                if u.speed < 200:
+                                    rews[i].append(-0.02)
                             elif d > 0.13:
                                 rews[i].append(0.02)
-                            # speed-dist
-                            # if d > 0.1:
-                            #     if u.ac_type == 1 and u.speed > 600: #550
-                            #         rews[i].append(0.02)
-                            #     elif u.ac_type == 2 and u.speed > 500: #400
-                            #         rews[i].append(0.02)
+                                if u.speed > 450:
+                                    rews[i].append(0.02)
                 
         #sum all collected rewards together
         for i in range(1, self.args.num_agents+1):

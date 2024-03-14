@@ -258,6 +258,7 @@ class HHMARLBaseEnv(MultiAgentEnv):
                         else:
                             # no reward for killing in escape mode
                             pass
+                            #rews[ev.unit_killer.id].append(1)
                     else:
                         #constant reward for killing in High-Level Env
                         rews[ev.unit_killer.id].append(1)
@@ -289,7 +290,7 @@ class HHMARLBaseEnv(MultiAgentEnv):
 
     def _get_policies(self, mode):
         """
-        Restore torch policies for self-play.
+        Restore torch policies for fictitious self-play.
         """
         policy_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'policies')
         self.policy = {}
@@ -376,7 +377,7 @@ class HHMARLBaseEnv(MultiAgentEnv):
                 end = self.args.num_agents + 1
             for i in range(start, end):
                 if self.sim.unit_exists(i):
-                    order.append([i, self._distance(agent_id, i, True)])
+                    order.append([i, self._distance(agent_id, i, True), self._distance(agent_id, i)])
         order.sort(key=lambda x:x[1])
         return order
 

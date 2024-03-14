@@ -47,14 +47,16 @@ Most important arguments to set are:
 
 ### Curriculum Learning
 
-- Training is done in levels (1-5) for low-level policies. After completion of training in a level, you have to manually start the next level training and restore the algorithm by setting `restore=True`. 
+- Training is done in levels (1-5) for low-level policies. Opponent intelligence increases by levels. The opponent behaviour per level is as follows. L1: static, L2: random, L3: scripted, L4: uses L3 policy, L5: uses L3, L4 and escape policies.
+- **Start with training of escape policies because they are need in training of Level 5 policies.** When training escape policy, `level=3` is automatically set. It is sufficient for learning to flee from opponents.
+- After completion of training in a level, you have to manually start the next level training and restore the algorithm by setting `restore=True`. 
 - The algorithm and the evaluation/rendering images will be stored in `results/levelX_{fight/escape}`. 
 - When `agent_mode` is set to "escape", `level=3` is set to train against scripted opponents directly.
 - High-level policy is **not** trained in curriculum fashion.
 
 ### Inference
 
-Levels 4 and 5 use the previously learned policies (fictitious self-play). Ray seems inconsistent when calling its method `Policy.compute_single_action()`. Therefore, the learned policies will be stored in folder `policies` from level 3 onwards. The actions will then be computed manually inside the method `_policy_actions()`.
+Levels 4 and 5 use the previously learned policies (fictitious self-play). Ray seems inconsistent when calling its method `Policy.compute_single_action()`. Therefore, the learned policies will be stored during training in folder `policies` from level 3 onwards. The actions will then be computed manually inside the method `_policy_actions()`. You can also manually export policies by running `policy_export.py` (have a look at it and make configurations).
 
 ### Commander Sensing
 Change `N_OPPS_HL` in `env_hier.py`, `train_hier.py` and `ac_models_hier.py` to change detected opponents. E.g. setting `N_OPPS_HL=3` allows the Commander to detect 3 opponents for an agent and can select one of these three to attack.
@@ -64,3 +66,13 @@ Ray allows training on GPU but during several experiments, the performance was w
 
 ## Note
 HHMARL 3D is on its way with more advanced rendering ...
+
+## Citation
+
+`@article{hhmarl2d,
+  title={Hierarchical Multi-Agent Reinforcement Learning for Air Combat Maneuvering},
+  author={Selmonaj, Ardian and Szehr, Oleg and Del Rio, Giacomo and Antonucci, Alessandro and Schneider, Adrian and Ruegsegger, Michael},
+  journal={{ICMLA} International Conference on Machine Learning Applications 2023},
+  year={2023},
+  publisher={{IEEE}}
+}`

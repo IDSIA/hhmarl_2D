@@ -27,7 +27,8 @@ OBS_AC1 = 26
 OBS_AC2 = 24
 OBS_ESC_AC1 = 30
 OBS_ESC_AC2 = 29
-
+POLICY_DIR = 'policies'
+ 
 def update_logs(args, log_dir, level, epoch):
     """
     Copy stored checkpoints from Ray log to experiment log directory.
@@ -99,9 +100,9 @@ def make_checkpoint(args, algo, log_dir, epoch, level, env=None):
     update_logs(args, log_dir, level, epoch)
     for it in range(2):
         if args.level >= 3:
-            algo.export_policy_model(os.path.join(os.path.dirname(__file__), 'policies'), f'ac{it+1}_policy')
+            algo.export_policy_model(os.path.join(os.path.dirname(__file__), POLICY_DIR), f'ac{it+1}_policy')
             policy_name = f'L{args.level}_AC{it+1}' if args.agent_mode == "fight" else f'Esc_AC{it+1}'
-            os.rename('policies/model.pt', f'policies/{policy_name}.pt')
+            os.rename(f'{POLICY_DIR}/model.pt', f'{POLICY_DIR}/{policy_name}.pt')
         if args.eval and epoch%200==0:
             evaluate(args, algo, env, epoch, level, it)
 
@@ -281,7 +282,7 @@ if __name__ == '__main__':
         t = time.time()
         result = algo.train()
         time_acc += time.time()-t
-        iters.set_description(f"{i}) Reward = {result['episode_reward_mean']:.2f} | Level = {args.level} | Time = {round(time_acc/(i+1), 3)} | TB: {url} | Progress")
+        iters.set_description(f"{i}) Reward = {result['episode_reward_mean']:.2f} | Level = {args.level} | Avg. Episode Time = {round(time_acc/(i+1), 3)} | TB: {url} | Progress")
         
         if i % 50 == 0:
             make_checkpoint(args, algo, log_dir, i, args.level, test_env)
