@@ -28,7 +28,7 @@ OBS_AC2 = 24
 OBS_ESC_AC1 = 30
 OBS_ESC_AC2 = 29
 POLICY_DIR = 'policies'
- 
+
 def update_logs(args, log_dir, level, epoch):
     """
     Copy stored checkpoints from Ray log to experiment log directory.
@@ -101,9 +101,9 @@ def make_checkpoint(args, algo, log_dir, epoch, level, env=None):
     for it in range(2):
         if args.level >= 3:
             algo.export_policy_model(os.path.join(os.path.dirname(__file__), POLICY_DIR), f'ac{it+1}_policy')
-            policy_name = f'L{args.level}_AC{it+1}' if args.agent_mode == "fight" else f'Esc_AC{it+1}'
+            policy_name = f'L{args.level}_AC{it+1}_{args.agent_mode}'
             os.rename(f'{POLICY_DIR}/model.pt', f'{POLICY_DIR}/{policy_name}.pt')
-        if args.eval and epoch%200==0:
+        if args.eval and epoch%500==0:
             evaluate(args, algo, env, epoch, level, it)
 
 def get_policy(args):
@@ -213,7 +213,7 @@ def get_policy(args):
         .resources(num_gpus=args.gpu)
         .evaluation(evaluation_interval=None)
         .environment(env=LowLevelEnv, env_config=args.env_config)
-        .training(train_batch_size=args.batch_size, gamma=0.99, clip_param=0.25,lr=1e-4, lambda_=0.95, sgd_minibatch_size=args.mini_batch_size)
+        .training(kl_target=0.025, train_batch_size=args.batch_size, gamma=0.99, clip_param=0.25,lr=1e-4, lambda_=0.95, sgd_minibatch_size=args.mini_batch_size)
         .framework("torch")
         .multi_agent(policies={
                 "ac1_policy": PolicySpec(

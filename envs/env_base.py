@@ -79,13 +79,34 @@ class HHMARLBaseEnv(MultiAgentEnv):
     def step(self, action):
         """
         Take one step for all agents in env.
+
+        In High-Level mode, actions will be modified in take_action() to include actions for opponents.
+        Since actions is a dict, the reference will be passed and modified. 
         """
         self.rewards = {}
         if action:
             self._take_action(action)
         terminateds = truncateds = {}
         truncateds["__all__"] = terminateds["__all__"] = self.alive_agents <= 0 or self.alive_opps <= 0 or self.steps >= self.args.horizon
-        return self.state(), self.rewards, terminateds, truncateds, {}
+        if self.args.eval_info:
+            af = ae = of = oe = ast = ost = 0
+            opps_selection = {"opp1":0, "opp2":0, "opp3":0}
+            for k, v in action.items():
+                if self.sim.unit_exists(k):
+                    if v:
+                        if k <= self.args.num_agents: 
+                            af+=1; ast+=1; opps_selection[f"opp{v}"]+=1
+                        else: of+=1; ost+=1
+                    else:
+                        if k <= self.args.num_agents: ae+=1; ast+=1
+                        else: oe += 1; ost+=1
+
+            info = {"agents_win": int(self.alive_opps<=0 and self.steps<self.args.horizon), "opps_win": int(self.alive_agents<=0 and self.steps<self.args.horizon), "draw": int(self.steps>=self.args.horizon and self.alive_agents>0 and self.alive_opps>0), \
+             "agent_fight": af, "agent_escape":ae, "opp_fight":of, "opp_escape":oe, "agent_steps":ast, "opp_steps":ost}
+            info.update(opps_selection)
+        else: info = {}
+
+        return self.state(), self.rewards, terminateds, truncateds, info
     
     def fight_state_values(self, agent_id, unit, opp, fri_id=None):
         """
@@ -295,20 +316,34 @@ class HHMARLBaseEnv(MultiAgentEnv):
         policy_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'policies')
         self.policy = {}
         if mode == "LowLevel":
-            if self.args.level == 4:
-                self.policy = {"fight_1": torch.load(os.path.join(policy_dir, 'L3_AC1.pt')), "fight_2": torch.load(os.path.join(policy_dir, 'L3_AC2.pt'))}
-            else:
-                self.policies = {}
-                for i in range(3,6):
-                    if i <= 4:
-                        self.policies[i] = {"fight_1": torch.load(os.path.join(policy_dir, f'L{i}_AC1.pt')), "fight_2": torch.load(os.path.join(policy_dir, f'L{i}_AC2.pt'))}
-                    else:
-                        self.policies[i] = {"escape_1": torch.load(os.path.join(policy_dir, 'Esc_AC1.pt')), "escape_2": torch.load(os.path.join(policy_dir, 'Esc_AC2.pt'))}
+            if self.args.agent_mode == "fight":
+                if self.args.level == 4:
+                    self.policy = {"fight_1": torch.load(os.path.join(policy_dir, 'L3_AC1_fight.pt')), "fight_2": torch.load(os.path.join(policy_dir, 'L3_AC2_fight.pt'))}
+                else:
+                    self.policies = {}
+                    for i in range(3,6):
+                        if i <= 4:
+                            self.policies[i] = {"fight_1": torch.load(os.path.join(policy_dir, f'L{i}_AC1_fight.pt')), "fight_2": torch.load(os.path.join(policy_dir, f'L{i}_AC2_fight.pt'))}
+                        else:
+                            self.policies[i] = {"escape_1": torch.load(os.path.join(policy_dir, 'L3_AC1_escape.pt')), "escape_2": torch.load(os.path.join(policy_dir, 'L3_AC2_escape.pt'))}
+            else: #escape-vs-L5_fight
+                if self.args.level==5:
+                    self.policy = {"fight_1": torch.load(os.path.join(policy_dir, 'L5_AC1_fight.pt')), "fight_2": torch.load(os.path.join(policy_dir, 'L5_AC2_fight.pt'))}
         else:
-            self.policy["fight_1"] = torch.load(os.path.join(policy_dir, 'L5_AC1.pt'))
-            self.policy["fight_2"] = torch.load(os.path.join(policy_dir, 'L5_AC2.pt'))
-            self.policy["escape_1"] = torch.load(os.path.join(policy_dir, 'Esc_AC1.pt'))
-            self.policy["escape_2"] = torch.load(os.path.join(policy_dir, 'Esc_AC2.pt'))
+            self.policy["fight_1"] = torch.load(os.path.join(policy_dir, f'L{self.args.eval_level_ag}_AC1_fight.pt'))
+            self.policy["fight_2"] = torch.load(os.path.join(policy_dir, f'L{self.args.eval_level_ag}_AC2_fight.pt'))
+            try:
+                self.policy["escape_1"] = torch.load(os.path.join(policy_dir, f'L5_AC1_escape.pt'))
+                self.policy["escape_2"] = torch.load(os.path.join(policy_dir, f'L5_AC2_escape.pt'))
+            except:
+                # if escape was not trained against L5_fight
+                self.policy["escape_1"] = torch.load(os.path.join(policy_dir, f'L3_AC1_escape.pt'))
+                self.policy["escape_2"] = torch.load(os.path.join(policy_dir, f'L3_AC2_escape.pt'))
+
+            if not self.args.eval_hl:
+                # if evaluating purely low-level policies without commander
+                self.policy["fight_1_opp"] = torch.load(os.path.join(policy_dir, f'L{self.args.eval_level_opp}_AC1_fight.pt'))
+                self.policy["fight_2_opp"] = torch.load(os.path.join(policy_dir, f'L{self.args.eval_level_opp}_AC2_fight.pt'))
         return
 
     def _policy_actions(self, policy_type, agent_id, unit):
@@ -348,8 +383,13 @@ class HHMARLBaseEnv(MultiAgentEnv):
 
         state = self.lowlevel_state(policy_type, agent_id, unit=unit)
 
-        with torch.no_grad():
-            out = self.policy[f"{policy_type}_{unit.ac_type}"](
+        with torch.no_grad(): 
+            if self.args.eval_hl or policy_type == "escape":
+                policy_str = f"{policy_type}_{unit.ac_type}"
+            else:
+                policy_str = f"{policy_type}_{unit.ac_type}" if agent_id <= self.args.num_agents else f"{policy_type}_{unit.ac_type}_opp"
+            
+            out = self.policy[policy_str](
                 input_dict = {"obs": obs_tens(np.expand_dims(state[agent_id], axis=0))},
                 state=[torch.tensor(0)],
                 seq_lens=torch.tensor([1])
@@ -520,17 +560,19 @@ class HHMARLBaseEnv(MultiAgentEnv):
                 #at least one aircraft type (ac) per group
                 ac = i+1 if i <=1 else random.randint(1,2)
                 if ac == 1:
-                    unit = Rafale(Position(y, x, 10_000), heading=a, speed=0 if self.args.level<=2 and group=="opp" else 100, group="agent", friendly_check=self.args.friendly_kill)
+                    unit = Rafale(Position(y, x, 10_000), heading=a, speed=0 if self.args.level<=2 and group=="opp" else 100, group=group, friendly_check=self.args.friendly_kill)
                 else:
-                    unit = RafaleLong(Position(y, x, 10_000), heading=a, speed=0 if self.args.level<=2 and group=="opp" else 100, group="agent", friendly_check=self.args.friendly_kill)
+                    unit = RafaleLong(Position(y, x, 10_000), heading=a, speed=0 if self.args.level<=2 and group=="opp" else 100, group=group, friendly_check=self.args.friendly_kill)
 
                 if mode == "LowLevel":
                     if self.args.level <= 4 and group == "opp":
-                        unit.missile_remain = unit.rocket_max = 8
                         unit.cannon_max = unit.cannon_remain_secs = 400
+                        if ac == 1:
+                            unit.missile_remain = unit.rocket_max = 8
                     elif self.args.level == 5:
-                        unit.missile_remain = unit.rocket_max = 6
                         unit.cannon_max = unit.cannon_remain_secs = 300
+                        if ac == 1:
+                            unit.missile_remain = unit.rocket_max = 6
                 else:
                     unit.cannon_max = unit.cannon_remain_secs = 300
                     if ac == 1:

@@ -6,6 +6,7 @@ Low Level agent policies are included in this env.
 import os
 import random
 import numpy as np
+from fractions import Fraction
 from gymnasium import spaces
 from .env_base import HHMARLBaseEnv
 
@@ -16,7 +17,7 @@ OBS_AC2 = 24
 OBS_ESC_AC1 = 30
 OBS_ESC_AC2 = 29
 
-N_OPP_HL = 2
+N_OPP_HL = 2 #change for sensing
 OBS_OPP_HL = 10
 OPP_SIZE = N_OPP_HL*OBS_OPP_HL
 OBS_FRI_HL = 5
@@ -29,8 +30,8 @@ class HighLevelEnv(HHMARLBaseEnv):
     """
     def __init__(self, env_config):
         self.args = env_config.get("args", None)
-        self.n_sub_steps = env_config.get("sub_steps", 20) #standard number of low-level steps
-        self.min_sub_steps = 15
+        self.n_sub_steps = 15
+        self.min_sub_steps = 10
 
         self.observation_space = spaces.Box(low=np.zeros(OBS_HL), high=np.ones(OBS_HL), dtype=np.float32)
         self.action_space = spaces.Discrete(N_OPP_HL+1)
@@ -116,9 +117,7 @@ class HighLevelEnv(HHMARLBaseEnv):
         situation_event = False
         rewards = {}
         self.commander_actions = commander_actions
-
-        opp_behaviour = {i: "escape" if self.steps % 20 in range(7) and bool(random.randint(0,1)) else "fight" for i in range(self.args.num_agents+1, self.args.total_num+1)}
-        self.min_sub_steps = random.randint(13,20)
+        self.min_sub_steps = 10 #random.randint(10,16)
 
         # Select opp to attack and assess action
         rewards = self._action_assess(rewards)
@@ -127,11 +126,7 @@ class HighLevelEnv(HHMARLBaseEnv):
             for i in range(1, self.args.total_num+1):
                 if self.sim.unit_exists(i):
                     u = self.sim.get_unit(i)
-                    if i <= self.args.num_agents:
-                        actions = self._policy_actions(policy_type="escape" if commander_actions[i]==0 else "fight", agent_id=i, unit=u)
-                    else:
-                        actions = self._policy_actions(policy_type=opp_behaviour[i], agent_id=i, unit=u)
-
+                    actions = self._policy_actions(policy_type="escape" if self.commander_actions[i]==0 else "fight", agent_id=i, unit=u)
                     self._take_base_action("HighLevel", u, i, self.opp_to_attack[i][self.commander_actions[i]-1][0], actions)
 
             rewards, kill_event = self._get_rewards(rewards, self.sim.do_tick())
@@ -164,31 +159,33 @@ class HighLevelEnv(HHMARLBaseEnv):
                             opp_id = None
                             self.commander_actions[i] = 1
 
-                        if opp_id:
-                            if self._distance(i, opp_id) < 0.1 and self._focus_angle(i, opp_id) < 15:
+                        if not opp_id: rewards[i] = -0.1
+                        if self.args.hier_action_assess and opp_id:
+                            if self._distance(i, opp_id) < 0.1 and self._focus_angle(i, opp_id) < 15 and self._focus_angle(opp_id, i) > 40:
                                 rewards[i] = 0.1
                             else:
                                 rewards[i] = 0
-                        else:
-                            rewards[i] = -0.1
-                        
-                        # cl_opp = self.opp_to_attack[i][0][0]
-                        # if self._distance(cl_opp, i) < 0.1 and self._focus_angle(cl_opp, i) < 10 and self._focus_angle(i, cl_opp) > 30:
-                        #     rewards[i] = -0.1
                     else:
-                        cl_opp = self.opp_to_attack[i][0][0]
-                        if self._distance(cl_opp, i) < 0.1 and self._focus_angle(cl_opp, i) < 15 and self._focus_angle(i, cl_opp) > 30:
-                            rewards[i] = 0.1
+                        if self.args.hier_action_assess:
+                            cl_opp = self.opp_to_attack[i][0][0]
+                            if self._distance(cl_opp, i) < 0.1 and self._focus_angle(cl_opp, i) < 15 and self._focus_angle(i, cl_opp) > 40:
+                                rewards[i] = 0.1
                 else:
-                    # assign closest agent for opponents. Sometimes, randomly select another agent to attack.
-                    possible_agent_ids = len(self.opp_to_attack[i])
-                    if possible_agent_ids > 1 and self.steps % 20 in range(5) and bool(random.randint(0,1)):
-                        ag_id = random.randint(1,possible_agent_ids)
-                    else:
-                        ag_id = 1
+                    # determine if opponents select pi_fight with fight probability
+                    p_of = Fraction(self.args.hier_opp_fight_ratio, 100).limit_denominator().as_integer_ratio()
+                    fight = bool(random.choices([0, 1], weights=[p_of[1]-p_of[0], p_of[0]], k=1)[0])
+                    if fight:
+                        possible_agent_ids = len(self.opp_to_attack[i])
+                        if possible_agent_ids > 1 and bool(random.choices([0, 1], weights=[1, 3], k=1)[0]):
+                            # randomly select another agent to attack
+                            ag_id = random.randint(2,possible_agent_ids)
+                        else:
+                            ag_id = 1
+                    else: ag_id = 0 #escape
+                    # define commander actions for opponents
                     self.commander_actions[i] = ag_id
             else:
-                rewards[i] = 0
+                if i <= self.args.num_agents: rewards[i] = 0
                 self.commander_actions[i] = None
         return rewards
 

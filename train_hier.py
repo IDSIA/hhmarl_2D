@@ -21,7 +21,7 @@ from models.ac_models_hier import CommanderGru
 from config import Config
 from envs.env_hier import HighLevelEnv
 
-N_OPP_HL = 2
+N_OPP_HL = 2 #change for sensing
 ACT_DIM = N_OPP_HL+1
 OBS_DIM = 14+10*N_OPP_HL
 
@@ -70,7 +70,7 @@ def evaluate(args, algo, env, epoch):
         states = [torch.zeros(200), torch.zeros(200)]
 
         for ag_id, ag_s in state.items():
-            a = algo.compute_single_action(observation=cc_obs(ag_s), state=states, policy_id="commander_policy")
+            a = algo.compute_single_action(observation=cc_obs(ag_s), state=states, policy_id="commander_policy", explore=False)
             actions[ag_id] = a[0]
             states[0] = a[1][0]
             states[1] = a[1][1]
@@ -92,7 +92,7 @@ def evaluate(args, algo, env, epoch):
 def make_checkpoint(args, algo, log_dir, epoch, env=None):
     algo.save()
     update_logs(args, log_dir)
-    if args.eval and epoch%100==0:
+    if args.eval and epoch%500==0:
         for _ in range(2):
             evaluate(args, algo, env, epoch)
 
@@ -179,7 +179,7 @@ def get_policy(args):
 
     algo = (
         PPOConfig()
-        .rollouts(num_rollout_workers=args.num_workers, batch_mode="complete_episodes", enable_connectors=False) #compare with cetralized_critic_2.py
+        .rollouts(num_rollout_workers=args.num_workers, batch_mode="complete_episodes", enable_connectors=False)
         .resources(num_gpus=args.gpu)
         .evaluation(evaluation_interval=None)
         .environment(env=HighLevelEnv, env_config=args.env_config)

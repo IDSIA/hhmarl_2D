@@ -20,13 +20,10 @@ class LowLevelEnv(HHMARLBaseEnv):
     def __init__(self, env_config):
         self.args = env_config.get("args", None)
         self.agent_mode = self.args.agent_mode
-        self.opp_mode = self.args.opp_mode
-
-        if self.agent_mode == "fight":
-            self.obs_dim_map = {1: OBS_AC1, 2:OBS_AC2, 3:OBS_AC1, 4:OBS_AC2}
-        else:
-            # escape state-space
-            self.obs_dim_map = {1: OBS_ESC_AC1, 2:OBS_ESC_AC2, 3:OBS_ESC_AC1, 4:OBS_ESC_AC2}
+        self.opp_mode = "fight"
+        self.obs_fight = {1: OBS_AC1, 2:OBS_AC2, 3:OBS_AC1, 4:OBS_AC2}
+        self.obs_esc = {1: OBS_ESC_AC1, 2:OBS_ESC_AC2, 3:OBS_ESC_AC1, 4:OBS_ESC_AC2}
+        self.obs_dim_map = self.obs_fight if self.agent_mode == "fight" else self.obs_esc
 
         self._obs_space_in_preferred_format = True
         self.observation_space = spaces.Dict({
@@ -51,10 +48,11 @@ class LowLevelEnv(HHMARLBaseEnv):
         # fictitious Self-Play (sp), starting from L4 on
         if self.args.level >= 4:
            self._get_policies("LowLevel")
+        if self.args.level == 5 and self.agent_mode == "escape": self.opp_mode = "fight"
 
     def reset(self, *, seed=None, options=None):
         super().reset(options={"mode":"LowLevel"})
-        if self.args.level == 5:
+        if self.args.level == 5 and self.args.agent_mode=="fight":
             #randomly select opponent behavior every new episode in L5.
             k = random.randint(3,5)
             self.policy = self.policies[k]
@@ -77,7 +75,7 @@ class LowLevelEnv(HHMARLBaseEnv):
                 return 3 if agent_id == 4 else 4
 
         #need to define obs_dim again, because in L5, agent is in fight mode and opp may switch to esc mode.
-        obs_dim = {1: OBS_ESC_AC1, 2: OBS_ESC_AC2, 3: OBS_ESC_AC1, 4: OBS_ESC_AC2} if mode == "escape" else self.obs_dim_map
+        obs_dim = self.obs_fight if mode == "fight" else self.obs_esc
         state_dict = {}
 
         if agent_id:
@@ -193,34 +191,33 @@ class LowLevelEnv(HHMARLBaseEnv):
         First check for out-of-boundary, then killing rewards.
         rewards are collected in dict 'rews' in order to sum them together and 
         possibly add a global fraction 'glob_frac' (to incorporate rewads of cooperating agents).
-
-        It's also possible to scale rewards by adjusting 'rew_scale' in config.
         """
         rews, destroyed_ids, _ = self._combat_rewards(events, opp_stats)
 
-        if self.agent_mode == "escape":
+        #per-time-step escape reward
+        if self.agent_mode == "escape" and self.args.esc_dist_rew:
             for i in range(1, self.args.num_agents+1):
                 if self.sim.unit_exists(i):
                     u = self.sim.get_unit(i)
                     # considering all opps
-                    for j in range(self.args.num_agents+1, self.args.total_num+1):
-                        if self.sim.unit_exists(j):
-                            d = self._distance(i, j)
-                            if d < 0.06:
-                                rews[i].append(-0.02)
-                                # if self._focus_angle(j, i) < 15: #25
-                                #     rews[i].append(-0.05)
-                                if u.speed < 200:
-                                    rews[i].append(-0.02)
-                            elif d > 0.13:
-                                rews[i].append(0.02)
-                                if u.speed > 450:
-                                    rews[i].append(0.02)
+                    opps = self._nearby_object(i)
+                    for j, o in enumerate(opps, start=1):
+                        #o[2] is unnormalized distance
+                        #opps is ordered by distance, so we scale rewards by closest opponent j
+                        if o[2] < 0.06:
+                            rews[i].append(-0.02/j)
+                            if u.speed < 200:
+                                rews[i].append(-0.02/j)
+                        elif o[2] > 0.13:
+                            rews[i].append(0.02/j)
+                            if u.speed > 500:
+                                rews[i].append(0.02/j)
                 
         #sum all collected rewards together
         for i in range(1, self.args.num_agents+1):
             if self.sim.unit_exists(i) or i in destroyed_ids:
                 if self.args.glob_frac > 0 and self.agent_mode == "fight":
+                    #shared reward function, defined for 2-vs-2 training in fight mode
                     rewards[i] += sum(rews[i]) + self.args.glob_frac*sum(rews[i%2+1])
                 else:
                     rewards[i] += sum(rews[i])

@@ -7,7 +7,7 @@ from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
 torch, nn = try_import_torch()
 
-N_OPP_HL = 2
+N_OPP_HL = 2 #change for sensing
 OBS_OPP = 10
 OBS_DIM = 14+OBS_OPP*N_OPP_HL
 

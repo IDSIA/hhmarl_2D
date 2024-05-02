@@ -28,7 +28,7 @@ for i in range(1,3):
     save_dir = os.path.join(os.path.dirname(__file__), POL_DIR)
     pol.export_model(save_dir)
     
-    policy_name = f'L{LEVEL}_AC{i}' if MODE == "fight" else f'Esc_AC{i}'
+    policy_name = f'L{LEVEL}_AC{i}_{MODE}'
     os.rename(f'{POL_DIR}/model.pt', f'{POL_DIR}/{policy_name}.pt')
 
 print(f"{MODE} policies exported to folder {POL_DIR}")
