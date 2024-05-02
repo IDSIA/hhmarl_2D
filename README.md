@@ -28,6 +28,7 @@ Run `train_hetero.py` for heterogeneous agents training in low-level mode and `t
 
 ### Procedure
 For training the full model, proceed as follows:
+
 ***1) Run `train_hetero.py`***
 - Start with `level=1` and `agent_mode="fight"`. When finished, continue training up to `level=4` with `agent_mode="fight"`. It is important to stop at level 4, for now.
 - Run file with `level=3` and `agent_mode="escape"`.
