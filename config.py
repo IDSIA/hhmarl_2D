@@ -17,9 +17,9 @@ class Config(object):
         parser.add_argument('--level', type=int, default=1, help='Training Level')
         parser.add_argument('--horizon', type=int, default=500, help='Length of horizon')
         parser.add_argument('--agent_mode', type=str, default="fight", help='Agent mode: Fight or Escape')
-        parser.add_argument('--num_agents', type=int, default=2 if mode==0 else 4, help='Number of (trainable) agents')
-        parser.add_argument('--num_opps', type=int, default=2 if mode==0 else 4, help='Number of opponents')
-        parser.add_argument('--total_num', type=int, default=4 if mode==0 else 8, help='Total number of aircraft')
+        parser.add_argument('--num_agents', type=int, default=2 if mode==0 else 3, help='Number of (trainable) agents')
+        parser.add_argument('--num_opps', type=int, default=2 if mode==0 else 3, help='Number of opponents')
+        parser.add_argument('--total_num', type=int, default=4 if mode==0 else 6, help='Total number of aircraft')
         parser.add_argument('--hier_opp_fight_ratio', type=int, default=75, help='Opponent fight policy selection probability [in %].')
 
         # env & training params
