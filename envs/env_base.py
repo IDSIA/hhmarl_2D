@@ -443,8 +443,7 @@ class HHMARLBaseEnv(MultiAgentEnv):
         Aspect angle: angle from agent_id tail to opp_id, regardless of heading of opp_id.
         """
         focus = self._focus_angle(agent_id, opp_id)
-        sign = self._correct_angle_sign(self.sim.get_unit(agent_id), self.sim.get_unit(opp_id))
-        return (abs((focus*sign)-180)%359)/359 if norm else abs((focus*sign)-180)%359
+        return np.clip((180 - focus)/180,0,1) if norm else np.clip(180-focus,0,180)
 
     def _heading_diff(self, agent_id, opp_id, norm=True):
         """
