@@ -47,7 +47,7 @@ class Config(object):
 
         # eval
         parser.add_argument('--eval_info', type=bool, default=True if mode==2 else False, help='Provide eval statistic in step() function or not. Dont change for evaluation.')
-        parser.add_argument('--eval_hl', type=bool, default=False, help='True=evaluation with Commander, False=evaluation of low-level policies.')
+        parser.add_argument('--eval_hl', type=bool, default=True, help='True=evaluation with Commander, False=evaluation of low-level policies.')
         parser.add_argument('--eval_level_ag', type=int, default=5, help='Agent low-level for evaluation.')
         parser.add_argument('--eval_level_opp', type=int, default=4, help='Opponent low-level for evaluation.')
         
