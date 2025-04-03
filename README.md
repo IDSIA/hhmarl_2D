@@ -85,10 +85,12 @@ HHMARL 3D is on its way with more advanced rendering ...
 ## Citation
 
 ```
-@misc{hhmarl2d,
-  author = {Ardian Selmonaj and Oleg Szehr and Giacomo Del Rio and Alessandro Antonucci and Adrian Schneider and Michael Rüegsegger},
-  title = {Hierarchical Multi-Agent Reinforcement Learning for Air Combat Maneuvering},
-  year = {2023},
-  eprint = {arXiv:2309.11247},
+@inproceedings{hhmarl2d,
+  title={Hierarchical Multi-Agent Reinforcement Learning for Air Combat Maneuvering},
+  author={Selmonaj, Ardian and Szehr, Oleg and Del Rio, Giacomo and Antonucci, Alessandro and Schneider, Adrian and R{\"u}egsegger, Michael},
+  booktitle={2023 International Conference on Machine Learning and Applications (ICMLA)},
+  pages={1031--1038},
+  year={2023},
+  organization={IEEE}
 }
 ```
