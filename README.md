@@ -2,7 +2,7 @@
 
 Heterogeneous Hierarchical Multi-Agent Reinforcement Learning for Air Combat Maneuvering, the implementation of the method proposed in this [paper](https://arxiv.org/abs/2309.11247).
 
-**NOTE:** Check out our new and more realistic 3D Hierarchical MARL Air Combat model [here](https://github.com/IDSIA-papers/HHMARL_AirCombat). It also features our own implementation of [MAPPO](https://arxiv.org/pdf/2103.01955) and also includes the more recent algorithms [MASPO](https://arxiv.org/pdf/2401.16025) and [MARS](https://arxiv.org/pdf/2605.09212).
+**NOTE:** Check out our *NEW* and more realistic 3D Hierarchical MARL Air Combat model [here](https://github.com/IDSIA-papers/HHMARL_AirCombat). It also features our own implementation of [MAPPO](https://arxiv.org/pdf/2103.01955) and also includes the more recent algorithms [MASPO](https://arxiv.org/pdf/2401.16025) and [MARS](https://arxiv.org/pdf/2605.09212).
 
 <img src="img/hier_pol.png" width="250"> <img src="img/fight_pol.png" width="250"> <img src="img/esc_pol.png" width="250">
 
