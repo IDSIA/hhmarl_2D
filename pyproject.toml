@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hhmarl_jax"
+version = "0.1.0"
+description = "JAX re-implementation of HHMARL 2D (hierarchical heterogeneous MARL air combat)"
+requires-python = ">=3.10"
+# NOTE: jax is NOT pinned with an accelerator extra: Kaggle images ship a CUDA jax already.
+# On a machine without jax use `pip install "jax[cuda12]"` (GPU) or `pip install jax` (CPU).
+dependencies = [
+    "jax>=0.4.26",
+    "flax>=0.8.0",
+    "optax>=0.1.7",
+    "numpy>=1.24",
+    "msgpack>=1.0",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.7", "pillow>=9"]
+# parity tests import the original numpy env (envs/, warsim/); ray/torch/cairo/cartopy are
+# stubbed by the test harness, so only these are needed:
+test = ["pytest>=7", "geographiclib>=2.0", "scipy>=1.10", "gymnasium>=0.28"]
+
+[tool.setuptools.packages.find]
+include = ["hhmarl_jax*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
