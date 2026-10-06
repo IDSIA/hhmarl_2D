@@ -351,3 +351,11 @@ Definitions:
 
 ## 14. Change log
 - v1: initial contract.
+
+## Orchestrator decisions (binding)
+1. **Presets.** Two training presets: `faithful` (default) keeps the original env-steps per PPO update, minibatch size, epochs and max_seq_len, so learning per env-step matches RLlib; `throughput` uses many more parallel envs (e.g. 1024+) with a proportionally larger batch. Paper-reproduction runs use `faithful`; `throughput` is for exploration and must be labelled as such in logs.
+2. **Fig 7b eval fight ratio.** Follow the original `evaluation.py` behaviour by default; expose the fight/escape ratio as an eval argument (1.0 = pure fight).
+3. **Fig 8b escape eval.** Accepted as proposed (L5 fight opponents that always fight; outcome precedence killed/OOB=lost > kills > escaped). Document it as our own protocol, since the original has no script.
+4. **Clean SA variant.** Single-step attention is sufficient.
+5. **Rollout cut.** Fixed-length rollouts with value bootstrap at the cut are accepted (RLlib `truncate_episodes` also bootstraps at fragment cuts); horizon end stays non-bootstrapped in `rllib_faithful` mode.
+6. **"Paper" options** (paper L5 opponent mix, paper commander sub-step/event rule) are out of scope for now; `NotImplementedError` is fine.
